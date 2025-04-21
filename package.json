@@ -1,0 +1,27 @@
+{
+  "name": "nanocart",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.777.0",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dns": "^0.2.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.13.0",
+    "multer": "^1.4.5-lts.2",
+    "multer-s3": "^3.0.1",
+    "nodemailer": "^6.10.0",
+    "uuid": "^11.1.0"
+  }
+}
