@@ -2,36 +2,34 @@ const mongoose = require("mongoose");
 
 const RatingAndReviewSchema = new mongoose.Schema(
   {
-    partnerId: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Partner",
-      required: true,
+      required: [true, "PartnerId is required"],
     },
-    reviews: [
+    itemDetailId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ItemDetail",
+      required: [true, "itemDetailId is required"],
+    },
+    rating: {
+      type: Number,
+      required: [true, "Rating is required"],
+      min: [0, "Rating must be at least 0"],
+      max: [5, "Rating must be at most 5"],
+    },
+    review: {
+      type: String,
+      trim: true,
+    },
+    customerProductImage: [
       {
-        _id: {
-          type: mongoose.Schema.Types.ObjectId,
-          default: () => new mongoose.Types.ObjectId(),
-        },
-        rating: {
-          type: Number,
-          required: true,
-          min: 0,
-          max: 5,
-        },
-        comment: {
-          type: String,
-          trim: true,
-        },
-        createdAt: {
-          type: Date,
-          default: Date.now,
-        },
+        type: String,
+        default: "",
       },
     ],
-    customerPhoto: {
+    sizeBought: {
       type: String,
-      default: "",
     },
   },
   {
@@ -39,4 +37,10 @@ const RatingAndReviewSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model("PartnerRatingAndReview", RatingAndReviewSchema);
+// Ensure one review per user per item
+RatingAndReviewSchema.index({ userId: 1, itemDetailId: 1 }, { unique: true });
+
+module.exports = mongoose.model(
+  "PartnerRatingAndReview",
+  RatingAndReviewSchema
+);
