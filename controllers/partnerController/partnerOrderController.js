@@ -12,8 +12,8 @@ exports.createOrder = async (req, res) => {
       invoiceId,
       totalPrice,
       shippingAddressId,
-      paymentMethod,
       walletId,
+      paymentMethod,
       paymentStatus,
       razorpayOrderId,
       razorpayPaymentId,
@@ -138,7 +138,10 @@ exports.createOrder = async (req, res) => {
     }
 
     // Validate payment method
-    if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
+    if (
+      !paymentMethod ||
+      !["Online", "COD", "Wallet"].includes(paymentMethod)
+    ) {
       return res
         .status(400)
         .json(

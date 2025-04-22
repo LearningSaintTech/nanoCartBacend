@@ -24,6 +24,7 @@ const userAddressRoutes=require("./routes/userAdddressRoutes/userAddressRoutes")
 const invoiceRoutes=require("./routes/invoiceRoutes/invoiceRoutes");
 const userOrderRoutes=require("./routes/userOrderRoutes/userOrderRoutes");
 const userTBYBRoutes=require("./routes/userTBYBRoutes/userTBYBRoutes");
+const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrder");
 
 
 
@@ -62,7 +63,7 @@ app.use("/api/user/address",userAddressRoutes)
 app.use("/api/invoice",invoiceRoutes)
 app.use("/api/user/order",userOrderRoutes)
 app.use("/api/user/tbyb",userTBYBRoutes)
-
+app.use("/api/partner/order", partnerOrderRoutes);
 
 
 // app.use("/api/auth/partner",partnerAuthRoutes);
@@ -70,7 +71,7 @@ app.use("/api/user/tbyb",userTBYBRoutes)
 // app.use("/api/partner/wishlist",partnerWishlistRoutes)
 // app.use("/api/partner/cart",partnerCartRoutes)
 // app.use("/api/partner/ratingreview",partnerRatingReview)
-// app.use("/api/wallet",walletRoutes)
+// app.use("/api/wallet", partnerWalletRoutes);
 
 
 
