@@ -9,13 +9,14 @@ const {
 } = require("../../controllers/partnerController/partnerRatingReviewController"); // Adjust path
 
 const { verifyToken } = require("../../middlewares/verifyToken"); // Adjust path
-const { isPartner } = require("../../middlewares/isUser"); // Adjust path
+const { isPartner } = require("../../middlewares/isPartner"); // Adjust path
 
 // Configure Multer for multiple file uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
 });
+
 
 // Create a review (Authenticated, supports multiple image uploads)
 router.post(
