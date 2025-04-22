@@ -7,7 +7,8 @@ const {
   fetchUserOrders,
   fetchConfirmedUserOrders,
   fetchOrderByOrderId,
-  cancelOrder
+  cancelOrders,
+  exchangeOrders
 } = require('../../controllers/userOrderController/userOrderController');
 
 // Create a new order
@@ -23,6 +24,9 @@ router.get('/confirmed', verifyToken, isUser, fetchConfirmedUserOrders);
 router.get('/:orderId', verifyToken, isUser,fetchOrderByOrderId);
 
 //routes to cancel Order
-router.put("/cancel/:orderId",verifyToken,isUser,cancelOrder)
+router.put("/cancel",verifyToken,isUser,cancelOrders)
+
+//routes for exchange Order
+router.put("/exchange",verifyToken,isUser,exchangeOrders)
 
 module.exports = router;
