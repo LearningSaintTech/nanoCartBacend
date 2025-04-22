@@ -1,20 +1,28 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const {createOrder,updateOrder,deleteOrder,getOrderById,getAllOrders} = require("../../controllers/userOrderController/userOrderController");
+const { verifyToken } = require('../../middlewares/verifyToken'); 
+const { isUser } = require('../../middlewares/isUser'); 
+const {
+  createOrder,
+  fetchUserOrders,
+  fetchConfirmedUserOrders,
+  fetchOrderByOrderId,
+  cancelOrder
+} = require('../../controllers/userOrderController/userOrderController');
 
-// CREATE a new order
-router.post("/", createOrder);
+// Create a new order
+router.post('/create', verifyToken, isUser,createOrder);
 
-// GET all orders
-router.get("/", getAllOrders);
+// Fetch all user orders
+router.get('/', verifyToken, isUser, fetchUserOrders);
 
-// GET a single order by ID
-router.get("/:id", getOrderById);
+// Fetch confirmed user orders
+router.get('/confirmed', verifyToken, isUser, fetchConfirmedUserOrders);
 
-// UPDATE an order by ID
-router.put("/:id", updateOrder);
+// Fetch specific order by orderId and all user orders
+router.get('/:orderId', verifyToken, isUser,fetchOrderByOrderId);
 
-// DELETE an order by ID
-router.delete("/:id", deleteOrder);
+//routes to cancel Order
+router.put("/cancel/:orderId",verifyToken,isUser,cancelOrder)
 
 module.exports = router;

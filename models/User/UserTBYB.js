@@ -14,7 +14,6 @@ const TBYBSchema = new mongoose.Schema({
       },
       TBYBImage: {
         type: String,
-        required: true,
       },
       uploadedAt: {
         type: Date,
@@ -24,4 +23,4 @@ const TBYBSchema = new mongoose.Schema({
   ],
 });
 
-module.exports = mongoose.model("TBYB", TBYBSchema);
+module.exports = mongoose.model("UserTBYB", TBYBSchema);

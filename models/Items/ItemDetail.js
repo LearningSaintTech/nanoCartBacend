@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const itemDetailSchema = new mongoose.Schema(
   {
     itemId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.ObjectId, 
       ref: "Item",
       required: true,
     },
@@ -18,7 +18,7 @@ const itemDetailSchema = new mongoose.Schema(
         ],
         sizes: [
           {
-            size: { type: String, trim: true },
+            size: { type: String, trim: true }, 
             stock: { type: Number, default: 0 },
             skuId: { type: String, required: true },
           },

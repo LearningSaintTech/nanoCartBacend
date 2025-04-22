@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema(
   {
+    orderId:{
+      type:String,
+      required:true
+    },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -9,11 +13,11 @@ const orderSchema = new mongoose.Schema(
     },
 
     // Order Items
-    items: [
+    itemDescription: [
       {
-        itemDetails: {
+        itemId: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "ItemDetails",
+          ref: "Item",
           required: true,
         },
         color: {
@@ -22,21 +26,32 @@ const orderSchema = new mongoose.Schema(
         size: {
           type: String,
         },
+        skuId:{
+          type:String
+        }
       },
+      
     ],
 
+    invoiceId:{
+      type: mongoose.Schema.Types.ObjectId,
+      ref:"Invoice"
+    },
     totalPrice: {
       type: Number,
-      required: true,
     },
 
     // Shipping Information
-    shippingAddress: {
+    shippingAddressId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "UserAddress",
     },
 
-    // Payment Information
+    // Payment Information This is for online Payment
+    paymentMethod: {
+      type: String,
+      enum: ["Online", "COD"],
+    },
     paymentStatus: {
       type: String,
       enum: ["Pending", "Paid", "Failed", "Refunded"],
@@ -44,37 +59,45 @@ const orderSchema = new mongoose.Schema(
     },
     razorpayOrderId: {
       type: String,
-      required: true,
+      // required: true,
+      default:null
     },
     razorpayPaymentId: {
       type: String,
-      required: true,
+      default:null,
+      // required: true,
+     
     },
     razorpaySignature: {
       type: String,
-      required: true,
+      default:null,
+      // required: true,
+    },
+
+    isOrderPlaced: {
+      type: Boolean,
+      default: false,
     },
     // Order Status
-    shippingStatus: {
+    orderStatus: {
       type: String,
       enum: [
-        "Pending",
         "Confirmed",
-        "Processing",
-        "Shipped",
-        "Out for Delivery",
+        "Ready for Dispatch",
+        "Dispatched",
         "Delivered",
         "Cancelled",
         "Returned",
+        "Initiated",
       ],
-      default: "Pending",
-    },
-    skuId: {
-      type: String,
     },
 
-    // Refund (Return) Subdocument
+    // Refund
     refund: {
+      isRefundActive:{
+        type:Boolean,
+        default:false
+      },
       requestDate: { type: Date, default: null },
       status: {
         type: String,
@@ -85,27 +108,51 @@ const orderSchema = new mongoose.Schema(
       reason: {
         type: String,
       },
-      refundTransactionId: { type: String, sparse: true },
-      refundStatus: { type: String, sparse: true },
-      notes: { type: String, sparse: true },
+      refundTransactionId: { type: String,},
+      refundStatus: { type: String,},
+    },
+
+    BankDetails: {
+      accountNumber: {
+        type: String,
+      },
+      ifscCode: {
+        type: String,
+      },
+      branchName: {
+        type: String,
+      },
+      accountName: {
+        type: String,
+      },
     },
 
     exchange: {
       requestDate: { type: Date, default: null },
       status: {
         type: String,
-        enum: [
-          "Pending",
-          "Approved",
-          "Rejected",
-          "Shipped",
-          "Shiprocket_Shipped",
-        ],
+        enum: ["Pending", "Approved", "Rejected"],
         default: "Pending",
       },
-      newItemId: { type: mongoose.Schema.Types.ObjectId, ref: "ItemDetails" },
-      notes: { type: String, sparse: true },
+      newItemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ItemId",
+      },
+      color: {
+        type: String,
+      },
+      size: {
+        type: String,
+      },
     },
+
+
+    deliveryDate:{
+      type:Date
+    },
+    expiresAt:{
+      type:Date
+    }
   },
   { timestamps: true }
 );
