@@ -1,37 +1,40 @@
 const mongoose = require("mongoose");
+const { Schema } = mongoose;
 
-const PartnerCartSchema = new mongoose.Schema(
+const cartSchema = new Schema(
   {
     partnerId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Partner",
-      required: true,
+      required: [true, "partnerId is required"],
       unique: true,
     },
     items: [
       {
-        itemDetailId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "ItemDetail",
-          required: true,
-        },
-        color: {
-          type: String,
-          required: true,
-        },
-        size: {
-          type: String,
-          required: true,
+        itemId: {
+          type: Schema.Types.ObjectId,
+          ref: "Item",
+          required: [true, "itemId is required"],
         },
         quantity: {
           type: Number,
-          required: true,
-          min: 1,
           default: 1,
+          min: [1, "Quantity must be at least 1"],
+        },
+        size: {
+          type: String,
+          required: [true, "size is required"],
+          trim: true,
+        },
+        color: {
+          type: String,
+          required: [true, "color is required"],
+          trim: true,
         },
         skuId: {
           type: String,
-          required: true,
+          required: [true, "skuId is required"],
+          trim: true,
         },
         addedAt: {
           type: Date,
@@ -40,7 +43,19 @@ const PartnerCartSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-module.exports = mongoose.model("PartnerCart", PartnerCartSchema);
+// Index for efficient querying of cart items
+cartSchema.index({
+  "items.itemId": 1,
+  "items.color": 1,
+  "items.size": 1,
+  "items.skuId": 1,
+});
+
+module.exports= mongoose.model("PartnerCart", cartSchema);
+
+

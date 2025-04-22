@@ -4,9 +4,8 @@ const router = express.Router();
 // Import the required Controller
 const {
   addToCart,
-  removeFromCart,
-  getPartnerCart,
-  deleteCart,
+  removeItemFromCart,
+  getPartnerCart, 
   updateCartItemQuantity,
 } = require("../../controllers/partnerController/partnerCartController");
 
@@ -17,7 +16,7 @@ const { isPartner } = require("../../middlewares/isPartner");
 router.post("/create", verifyToken, isPartner, addToCart);
 
 // Route to remove an item from the partner's cart
-router.delete("/removeitem", verifyToken, isPartner, removeFromCart);
+router.delete("/removeitem", verifyToken, isPartner, removeItemFromCart);
 
 // Route to fetch the partner's cartG
 router.get("/", verifyToken, isPartner, getPartnerCart);

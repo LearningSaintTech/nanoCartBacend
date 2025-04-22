@@ -198,7 +198,7 @@ exports.login = async (req, res) => {
 
     // Partner Flow:
     if (user.isPartner === true && user.isActive === false) {
-      const partner = await Partner.findOne({ phone: phoneNumber });
+      const partner = await Partner.findOne({ phoneNumber: phoneNumber });
       if (!partner) {
         return res
           .status(404)
@@ -218,7 +218,7 @@ exports.login = async (req, res) => {
       // Generate token for partner
       const partnerPayload = {
         partnerId: partner._id,
-        phoneNumber: partner.phone,
+        phoneNumber: partner.phoneNumber,
         email: partner.email,
         name: partner.name,
         role: "Partner",

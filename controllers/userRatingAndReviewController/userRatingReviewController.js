@@ -9,7 +9,7 @@ const { apiResponse } = require("../../utils/apiResponse"); // Adjust path
 // Create a new rating and review
 exports.createRatingReview = async (req, res) => {
     try {
-      console.log("Starting createRatingReview");
+      console.log("Starting createRatingReview"); 
       console.log("Request body:", req.body);
   
       let { rating, review, itemDetailId, sizeBought } = req.body;

@@ -1,237 +1,381 @@
 const ItemDetail = require("../../models/Items/ItemDetail");
+const Item=require("../../models/Items/Item")
 const Partner = require("../../models/Partner/Partner");
 const PartnerCart = require("../../models/Partner/PartnerCart");
 const { apiResponse } = require("../../utils/apiResponse");
 const mongoose = require("mongoose");
 
-// Add Item to Partner Cart
+// Add Item to Cart
 exports.addToCart = async (req, res) => {
   try {
+    console.log("Starting addToCart");
+    console.log("Request body:", req.body);
+
     const { partnerId } = req.user; 
-    const { itemDetailId, color,size, quantity, skuId } = req.body;
+    const { itemId, quantity, size, color, skuId } = req.body;
 
-    // Validate required fields 
-    if (!itemDetailId || !color || !quantity || !size || !skuId) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            false,
-            "itemDetailsId, color, quantity, and skuId are required"
-          )
-        );
-    }
-    if (!mongoose.Types.ObjectId.isValid(itemDetailId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, false, "Invalid itemDetailsId"));
-    }
-    if (!Number.isInteger(quantity) || quantity < 1) {
-      return res
-        .status(400)
-        .json(apiResponse(400, false, "Quantity must be a positive integer"));
+    // Validate required fields
+    const missingFields = [];
+    if (!itemId) missingFields.push("itemId");
+    if (!size) missingFields.push("size");
+    if (!color) missingFields.push("color");
+    if (!skuId) missingFields.push("skuId");
+
+    if (missingFields.length > 0) {
+      return res.status(400).json(apiResponse(400, false, `${missingFields.join(", ")} are required`));
     }
 
-    // Verify the item exists
-    const itemExists = await ItemDetail.findById(itemDetailId);
-    if (!itemExists) {
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
+    }
+
+    if (quantity && (!Number.isInteger(quantity) || quantity < 1)) {
+      return res.status(400).json(apiResponse(400, false, "Quantity must be a positive integer"));
+    }
+
+    // Validate partner existence
+    const partnerExists = await Partner.exists({ _id: partnerId });
+    if (!partnerExists) {
+      return res.status(404).json(apiResponse(404, false, "Partner not found"));
+    }
+
+    // Validate item existence
+    const item = await Item.findById(itemId);
+    if (!item) {
       return res.status(404).json(apiResponse(404, false, "Item not found"));
     }
 
-    let cart = await PartnerCart.findOne({ partnerId: partnerId });
+    // Validate ItemDetail
+    const itemDetail = await ItemDetail.findOne({ itemId });
+    if (!itemDetail) {
+      return res.status(404).json(apiResponse(404, false, "ItemDetail not found for this item"));
+    }
+
+    const colorEntry = itemDetail.imagesByColor.find(
+      (entry) => entry.color.toLowerCase() === color.toLowerCase()
+    );
+    if (!colorEntry) {
+      return res.status(400).json(apiResponse(400, false, `Color '${color}' not available for this item`));
+    }
+
+    const sizeEntry = colorEntry.sizes.find(
+      (s) => s.size === size && s.skuId === skuId
+    );
+    if (!sizeEntry) {
+      return res.status(400).json(apiResponse(400, false, `Size '${size}' with skuId '${skuId}' not available for color '${color}'`));
+    }
+
+    let cart = await PartnerCart.findOne({ partnerId });
+
     if (!cart) {
       // Create new cart
       cart = new PartnerCart({
-        partnerId: partnerId,
-        items: [{ itemDetailId, color,size, quantity, skuId }],
+        partnerId,
+        items: [{ itemId, quantity: quantity || 1, size, color, skuId }],
       });
-      await cart.save();
     } else {
-      // Check if item with same itemDetailsId, color, and skuId exists
-      const existingItemIndex = cart.items.findIndex(
+      // Check if item already exists
+      const existingItem = cart.items.find(
         (i) =>
-          i.itemDetailId.toString() === itemDetailId &&
-          i.color === color &&
+          i.itemId.toString() === itemId &&
+          i.color.toLowerCase() === color.toLowerCase() &&
           i.size === size &&
-          i.skuId === skuId 
+          i.skuId === skuId
       );
-      if (existingItemIndex !== -1) {
-        // Update quantity if item exists
-        cart.items[existingItemIndex].quantity += quantity;
+
+      if (existingItem) {
+        existingItem.quantity += quantity || 1;
       } else {
-        // Add new item
-        cart.items.push({ itemDetailId, color, quantity,size, skuId });
+        cart.items.push({ itemId, quantity: quantity || 1, size, color, skuId });
       }
-      await cart.save();
     }
 
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "Item added to cart successfully", cart));
+    await cart.save();
+
+    const populatedCart = await PartnerCart.findById(cart._id)
+    // .populate({
+    //   path: "items.itemId",
+    //   select: "name MRP image categoryId subCategoryId",
+    //   populate: [
+    //     { path: "categoryId", select: "name" },
+    //     { path: "subCategoryId", select: "name" },
+    //   ],
+    // });
+
+    return res.status(200).json(apiResponse(200, true, "Item added to cart", populatedCart));
   } catch (error) {
-    console.error("Error in addToCart (Partner):", error.message);
-    res.status(500).json(apiResponse(500, false, error.message));
+    console.error("Add to cart error:", {
+      message: error.message,
+      stack: error.stack,
+      body: req.body,
+    });
+    return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
   }
 };
 
-// Remove Item from Partner Cart
-exports.removeFromCart = async (req, res) => {
+
+
+// Remove Item from Cart
+exports.removeItemFromCart = async (req, res) => {
   try {
+    console.log("Starting removeItemFromCart");
+    console.log("Request body:", req.body);
     const { partnerId } = req.user;
-    const { itemDetailId, color, size, skuId } = req.body;
+    const { itemId, size, color, skuId } = req.body;
 
     // Validate required fields
-    if (!itemDetailId || !color || !skuId ||!size) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            false,
-            "itemDetailsId, color, size, and skuId are required"
-          )
-        );
+    if (!itemId || !size || !color || !skuId) {
+      return res.status(400).json(apiResponse(400, false, "itemId, size, color, and skuId are required"));
     }
-    if (!mongoose.Types.ObjectId.isValid(itemDetailId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, false, "Invalid itemDetailsId"));
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
     }
 
-    const cart = await PartnerCart.findOne({ partnerId: partnerId });
+    const cart = await PartnerCart.findOne({ partnerId });
     if (!cart) {
       return res.status(404).json(apiResponse(404, false, "Cart not found"));
     }
 
     const initialLength = cart.items.length;
+    // Filter out the matching item
     cart.items = cart.items.filter(
       (i) =>
         !(
-          i.itemDetailId.toString() === itemDetailId &&
-          i.color === color &&
+          i.itemId.toString() === itemId &&
+          i.color.toLowerCase() === color.toLowerCase() &&
           i.size === size &&
           i.skuId === skuId
         )
     );
 
     if (initialLength === cart.items.length) {
-      return res
-        .status(404)
-        .json(apiResponse(404, false, "Item not found in cart"));
+      return res.status(404).json(apiResponse(404, false, "Item not found in cart"));
     }
 
     await cart.save();
 
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "Item removed from cart", cart.items));
+    // Populate cart for response
+    const populatedCart = await PartnerCart.findById(cart._id)
+    // .populate({
+    //   path: "items.itemId",
+    //   select: "name MRP image categoryId subCategoryId",
+    //   populate: [
+    //     { path: "categoryId", select: "name" },
+    //     { path: "subCategoryId", select: "name" },
+    //   ],
+    // });
+
+    return res.status(200).json(apiResponse(200, true, "Item removed from cart", populatedCart));
   } catch (error) {
-    console.error("Error in removeFromCart (Partner):", error.message);
-    res.status(500).json(apiResponse(500, false, error.message));
+    console.error("Remove item error:", {
+      message: error.message,
+      stack: error.stack,
+      body: req.body,
+    });
+    return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
   }
 };
 
-
-// Update Item Quantity in Partner Cart
-exports.updateCartItemQuantity = async (req, res) => {
-  try {
-    const { partnerId } = req.user;
-    const { itemDetailId, color, size, skuId, action } = req.body;
-
-    // Validate required fields
-    if (!itemDetailId || !color || !skuId || !size || !action) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            false,
-            "itemDetailsId, color,size , skuId, and action are required"
-          )
-        );
-    }
-    if (!mongoose.Types.ObjectId.isValid(itemDetailId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, false, "Invalid itemDetailsId"));
-    }
-    if (!["increase", "decrease"].includes(action)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, false, "Action must be 'increase' or 'decrease'"));
-    }
-
-    // Find the partner's cart
-    const cart = await PartnerCart.findOne({ partner: partnerId });
-    if (!cart) {
-      return res.status(404).json(apiResponse(404, false, "Cart not found"));
-    }
-
-    // Find the item in the cart
-    const itemIndex = cart.items.findIndex(
-      (i) =>
-        i.itemDetailId.toString() === itemDetailId &&
-        i.color === color &&
-        i.size === size &&
-        i.skuId === skuId
-    );
-
-    if (itemIndex === -1) {
-      return res
-        .status(404)
-        .json(apiResponse(404, false, "Item not found in cart"));
-    }
-
-    // Update quantity based on action
-    if (action === "increase") {
-      cart.items[itemIndex].quantity = (cart.items[itemIndex].quantity || 1) + 1;
-    } else if (action === "decrease") {
-      const currentQuantity = cart.items[itemIndex].quantity || 1;
-      if (currentQuantity <= 1) {
-        // Optionally remove the item if quantity would become 0
-        cart.items.splice(itemIndex, 1);
-      } else {
-        cart.items[itemIndex].quantity = currentQuantity - 1;
-      }
-    }
-
-    // Save the updated cart
-    await cart.save();
- 
-    return res
-      .status(200)
-      .json(
-        apiResponse(200, true, "Item quantity updated successfully", cart.items)
-      );
-  } catch (error) {
-    console.error("Error in updateCartItemQuantity (Partner):", error.message);
-    res.status(500).json(apiResponse(500, false, error.message));
-  }
-};
-
-
-
+// Get User's Cart
 exports.getPartnerCart = async (req, res) => {
   try {
+    console.log("Starting getUserCart");
     const { partnerId } = req.user;
 
-    // Find cart by partner ID
-    const cart = await PartnerCart.findOne({ partnerId: partnerId })
-
+    const cart = await PartnerCart.findOne({ partnerId })
+    // .populate({
+    //   path: "items.itemId",
+    //   select: "name MRP image categoryId subCategoryId",
+    //   populate: [
+    //     { path: "categoryId", select: "name" },
+    //     { path: "subCategoryId", select: "name" },
+    //   ],
+    // });
 
     if (!cart || cart.items.length === 0) {
-      return res.status(404).json(apiResponse(404, false, "Cart is empty"));
+      return res.status(200).json(apiResponse(200, true, "Cart is empty", { partnerId, items: [] }));
     }
 
-    return res.status(200).json(
-      apiResponse(200, true, "Cart fetched successfully",items,)
-    );
+    return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", cart));
   } catch (error) {
-    console.error("Error in getPartnerCart:", error.message);
-    res.status(500).json(apiResponse(500, false, error.message));
+    console.error("Get cart error:", {
+      message: error.message,
+      stack: error.stack,
+    });
+    return res.status(500).json(apiResponse(500, false, error.message));
   }
 };
 
+// // Update Item Quantity in Cart
+// exports.updateCartItemQuantity = async (req, res) => {
+//   try {
+//     console.log("Starting updateCartItemQuantity");
+//     console.log("Request body:", req.body);
+//     const { userId } = req.user;
+//     const { itemId, size, color, skuId, action } = req.body;
+
+//     // Validate required fields
+//     if (!itemId || !size || !color || !skuId || !action) {
+//       return res.status(400).json(
+//         apiResponse(400, false, "itemId, size, color, skuId, and action are required")
+//       );
+//     }
+//     if (!mongoose.Types.ObjectId.isValid(itemId)) {
+//       return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
+//     }
+
+//     // Convert action to lowercase
+//     const normalizedAction = action.toLowerCase();
+//     if (!["increase", "decrease"].includes(normalizedAction)) {
+//       return res.status(400).json(apiResponse(400, false, "Action must be 'increase' or 'decrease'"));
+//     }
+
+//     // Find the cart
+//     const cart = await UserCart.findOne({ userId });
+//     if (!cart) {
+//       return res.status(404).json(apiResponse(404, false, "Cart not found"));
+//     }
+
+//     // Find the item in the cart
+//     const itemIndex = cart.items.findIndex(
+//       (i) =>
+//         i.itemId.toString() === itemId &&
+//         i.color.toLowerCase() === color.toLowerCase() &&
+//         i.size === size &&
+//         i.skuId === skuId
+//     );
+//     if (itemIndex === -1) {
+//       return res.status(404).json(apiResponse(404, false, "Item not found in cart"));
+//     }
+
+//     // Update quantity
+//     if (normalizedAction === "increase") {
+//       cart.items[itemIndex].quantity += 1;
+//     } else if (normalizedAction === "decrease") {
+//       if (cart.items[itemIndex].quantity <= 1) {
+//         cart.items.splice(itemIndex, 1);
+//       } else {
+//         cart.items[itemIndex].quantity -= 1;
+//       }
+//     }
+
+//     await cart.save();
+
+//     // Populate cart for response
+//     const populatedCart = await UserCart.findById(cart._id)
+//     // .populate({
+//     //   path: "items.itemId",
+//     //   select: "name MRP image categoryId subCategoryId",
+//     //   populate: [
+//     //     { path: "categoryId", select: "name" },
+//     //     { path: "subCategoryId", select: "name" },
+//     //   ],
+//     // });
+
+//     return res.status(200).json(
+//       apiResponse(200, true, "Item quantity updated successfully", populatedCart)
+//     );
+//   } catch (error) {
+//     console.error("Update cart item quantity error:", {
+//       message: error.message,
+//       stack: error.stack,
+//       body: req.body,
+//     });
+//     return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
+//   }
+// };
 
 
+
+// Update Item Quantity in Cart
+  exports.updateCartItemQuantity = async (req, res) => {
+    try {
+      console.log("Starting updateCartItemQuantity");
+      console.log("Request body:", req.body);
+      const { partnerId } = req.user;
+      const { itemId, size, color, skuId, action } = req.body;
+
+      // Validate required fields
+      if (!itemId || !size || !color || !skuId || !action) {
+        return res.status(400).json(
+          apiResponse(400, false, "itemId, size, color, skuId, and action are required")
+        );
+      }
+      if (!mongoose.Types.ObjectId.isValid(itemId)) {
+        return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
+      }
+
+      // Convert action to lowercase
+      const normalizedAction = action.toLowerCase();
+      if (!["increase", "decrease"].includes(normalizedAction)) {
+        return res.status(400).json(apiResponse(400, false, "Action must be 'increase' or 'decrease'"));
+      }
+
+      // Find the cart
+      const cart = await PartnerCart.findOne({ partnerId });
+      if (!cart) {
+        return res.status(404).json(apiResponse(404, false, "Cart not found"));
+      }
+
+      // Find the item in the cart
+      const itemIndex = cart.items.findIndex(
+        (i) =>
+          i.itemId.toString() === itemId &&
+          i.color.toLowerCase() === color.toLowerCase() &&
+          i.size === size &&
+          i.skuId === skuId
+      );
+      if (itemIndex === -1) {
+        return res.status(404).json(apiResponse(404, false, "Item not found in cart"));
+      }
+
+      // Store the item before updating (for response if removed)
+      let updatedItem = { ...cart.items[itemIndex].toObject() };
+
+      // Update quantity
+      if (normalizedAction === "increase") {
+        cart.items[itemIndex].quantity += 1;
+        updatedItem.quantity += 1; // Update the response item
+      } else if (normalizedAction === "decrease") {
+        if (cart.items[itemIndex].quantity <= 1) {
+          cart.items.splice(itemIndex, 1);
+          return res.status(200).json(
+            apiResponse(200, true, "Item removed from cart", null) 
+          );
+        } else {
+          cart.items[itemIndex].quantity -= 1;
+          updatedItem.quantity -= 1; // Update the response item
+        }
+      }
+
+      await cart.save();
+
+      // Populate the specific item's itemId
+      const populatedItem = await PartnerCart.findOne(
+        { _id: cart._id, "items._id": updatedItem._id },
+        {
+          "items.$": 1 // Select only the matching item
+        })
+      // ).populate({
+      //   path: "items.itemId",
+      //   select: "name MRP image categoryId subCategoryId",
+      //   populate: [
+      //     { path: "categoryId", select: "name" },
+      //     { path: "subCategoryId", select: "name" },
+      //   ],
+      // });
+
+      
+
+      return res.status(200).json(
+        apiResponse(200, true, "Item quantity updated successfully", populatedItem)
+      );
+    } catch (error) {
+      console.error("Update cart item quantity error:", {
+        message: error.message,
+        stack: error.stack,
+        body: req.body,
+      });
+      return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
+    }
+  };

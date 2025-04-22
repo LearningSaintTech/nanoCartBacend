@@ -2,9 +2,11 @@ const express=require("express")
 const router=express.Router();
 const {verifyToken}=require("../../middlewares/verifyToken");
 const {isPartner}=require("../../middlewares/isPartner")
-const {updatePartnerProfile}=require("../../controllers/partnerController/partnerProfileController")
+const {updatePartnerProfile,getPartnerProfile}=require("../../controllers/partnerController/partnerProfileController")
 
+//Not mandatory
+// router.put("/", verifyToken, isPartner, updatePartnerProfile); 
 
-router.put("/", verifyToken, isPartner, updatePartnerProfile); 
+router.get("/",verifyToken,isPartner,getPartnerProfile)
 
-module.exports=router;
+module.exports=router;  

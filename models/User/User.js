@@ -38,10 +38,6 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  isProfile: {
-    type: Boolean,
-    default: false,
-  },
   isAddress: {
     type: Boolean,
     default: false,

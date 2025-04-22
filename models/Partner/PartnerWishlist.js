@@ -1,32 +1,36 @@
 const mongoose = require("mongoose");
 
-const PartnerWishlistSchema = new mongoose.Schema(
+const WishlistSchema = new mongoose.Schema(
   {
     partnerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Partner",
-      required: true,
-      unique: true, 
+      required: [true, "partnerId is required"],
+      unique: true, // Ensure one wishlist per user
     },
     items: [
       {
-        itemDetailId: {
+        itemId: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "ItemDetail",
-          required: true,
+          ref: "Item",
+          required: [true, "itemId is required"],
         },
         color: {
           type: String,
-          required: true,
-        },
-        addedAt: {
-          type: Date,
-          default: Date.now,
+          required: [true, "color is required"],
+          trim: true,
         },
       },
     ],
   },
-  { timestamps: true }
+  {
+    timestamps: true, 
+  }
 );
 
-module.exports = mongoose.model("PartnerWishlist", PartnerWishlistSchema);
+// Index for efficient querying of wishlist items
+WishlistSchema.index({ "items.itemId": 1, "items.color": 1 });
+
+const UserWishlist = mongoose.model("PartnerWishlist", WishlistSchema);
+
+module.exports = UserWishlist;

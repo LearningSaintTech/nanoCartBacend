@@ -1,21 +1,35 @@
 const express = require("express");
 const multer = require("multer");
 const router = express.Router();
-const {createReview,updateReview,deleteReview,getMyReviews,getAllRatingsAndReviews}=require("../../controllers/partnerController/partnerRatingReviewController")
- 
-// Configure Multer for handling file uploads
-const storage = multer.memoryStorage();    
-const upload = multer({ storage }); 
 
-const {verifyToken}=require("../../middlewares/verifyToken");
-const {isPartner}=require("../../middlewares/isPartner");
+const {
+  createRatingReview,
+  deleteRatingReview,
+  getRatingsAndReviewsByItemDetailId,
+} = require("../../controllers/partnerController/partnerRatingReviewController"); // Adjust path
 
+const { verifyToken } = require("../../middlewares/verifyToken"); // Adjust path
+const { isPartner } = require("../../middlewares/isUser"); // Adjust path
 
-router.post("/create", verifyToken,isPartner, upload.single("customerImage"), createReview);
-router.put("/:reviewId", verifyToken,isPartner, upload.single("customerImage"), updateReview); 
-router.delete("/:reviewId", verifyToken, isPartner,  deleteReview);
-router.get("/", getAllRatingsAndReviews);
-router.get("/partner", getMyReviews);
+// Configure Multer for multiple file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+});
 
+// Create a review (Authenticated, supports multiple image uploads)
+router.post(
+  "/create",
+  verifyToken,
+  isPartner,
+  upload.array("customerProductImage", 5), // Match schema field, max 5 images
+  createRatingReview
+);
 
-module.exports=router
+// Delete a review (Authenticated)
+router.delete("/:reviewId", verifyToken, isPartner, deleteRatingReview);
+
+// Get all reviews and ratings And Customer pic of patricular itemDetailId
+router.get("/:itemDetailId", getRatingsAndReviewsByItemDetailId);
+
+module.exports = router;

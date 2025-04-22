@@ -325,7 +325,7 @@ exports.getUserCart = async (req, res) => {
         if (cart.items[itemIndex].quantity <= 1) {
           cart.items.splice(itemIndex, 1);
           return res.status(200).json(
-            apiResponse(200, true, "Item removed from cart", null)
+            apiResponse(200, true, "Item removed from cart", null) 
           );
         } else {
           cart.items[itemIndex].quantity -= 1;

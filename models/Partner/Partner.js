@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const partnerSchema = new mongoose.Schema({
-  userId: {
+  partner: { // this is userId
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
   },
@@ -47,10 +47,6 @@ const partnerSchema = new mongoose.Schema({
   },
   imageShop: {
     type: String,
-  },
-  TBYB: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "TBYB",
   },
   
 });

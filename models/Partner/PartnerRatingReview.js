@@ -1,11 +1,11 @@
 const mongoose = require("mongoose");
 
-const RatingAndReviewSchema = new mongoose.Schema(
+const partnerRatingReviewSchema = new mongoose.Schema(
   {
-    userId: {
+    partnerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Partner",
-      required: [true, "PartnerId is required"],
+      required: [true, "userId is required"],
     },
     itemDetailId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -28,9 +28,9 @@ const RatingAndReviewSchema = new mongoose.Schema(
         default: "",
       },
     ],
-    sizeBought: {
-      type: String,
-    },
+    sizeBought:{
+      type:String,
+    }
   },
   {
     timestamps: true,
@@ -38,9 +38,6 @@ const RatingAndReviewSchema = new mongoose.Schema(
 );
 
 // Ensure one review per user per item
-RatingAndReviewSchema.index({ userId: 1, itemDetailId: 1 }, { unique: true });
+partnerRatingReviewSchema.index({ partnerId: 1, itemDetailId: 1 }, { unique: true });
 
-module.exports = mongoose.model(
-  "PartnerRatingAndReview",
-  RatingAndReviewSchema
-);
+module.exports = mongoose.model("PartnerRatingReview", partnerRatingReviewSchema);
