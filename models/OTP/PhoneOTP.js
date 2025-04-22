@@ -14,7 +14,7 @@ const phoneOtpSchema = new mongoose.Schema({
   expiresAt: { 
     type: Date,
     required: true,
-    default: () => new Date(Date.now() + 5 * 60 * 1000), // Expires in 5 minutes
+    default: () => new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
   },
   isVerified: {
     type: Boolean,
@@ -22,5 +22,7 @@ const phoneOtpSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
+// TTL Index for auto-expiry
+phoneOtpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 module.exports = mongoose.model("PhoneOtp", phoneOtpSchema);

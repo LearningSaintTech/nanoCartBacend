@@ -319,7 +319,7 @@ exports.fetchConfirmedUserOrders = async (req, res) => {
 exports.fetchOrderByOrderId = async (req, res) => {
   try {
     const { userId } = req.user;
-    const { orderId } = req.query; // Assuming orderId is passed as a query parameter
+    const { orderId } = req.params; // Assuming orderId is passed as a query parameter
 
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -384,108 +384,335 @@ exports.fetchOrderByOrderId = async (req, res) => {
   }
 };
 
-
-
-// Cancel Order Controller
-exports.cancelOrder = async (req, res) => {
+// Cancel Orders Controller
+exports.cancelOrders = async (req, res) => {
   try {
     const { userId } = req.user;
-    const { orderId } = req.params;
-    const { reason, bankDetails } = req.body;
- 
+    const { orderIds, reason, bankDetails } = req.body;
+
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json(apiResponse(400, 'Invalid userId', null));
+      return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
 
-    // Validate orderId
-    if (!orderId || typeof orderId !== 'string' || orderId.trim() === '') {
-      return res.status(400).json(apiResponse(400, 'Valid orderId is required', null));
+    // Validate orderIds
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json(apiResponse(400, "orderIds must be a non-empty array", null));
+    }
+
+    for (const orderId of orderIds) {
+      if (typeof orderId !== "string" || orderId.trim() === "") {
+        return res.status(400).json(apiResponse(400, `Invalid orderId: ${orderId}`, null));
+      }
     }
 
     // Validate reason
-    if (!reason || typeof reason !== 'string' || reason.trim() === '') {
-      return res.status(400).json(apiResponse(400, 'Reason for cancellation is required', null));
+    if (!reason || typeof reason !== "string" || reason.trim() === "") {
+      return res.status(400).json(apiResponse(400, "Reason for cancellation is required", null));
     }
 
     // Validate bankDetails
-    if (!bankDetails || typeof bankDetails !== 'object') {
-      return res.status(400).json(apiResponse(400, 'Bank details are required', null));
+    if (!bankDetails || typeof bankDetails !== "object") {
+      return res.status(400).json(apiResponse(400, "Bank details are required", null));
     }
 
     const { accountNumber, ifscCode, branchName, accountName } = bankDetails;
     if (
-      !accountNumber || typeof accountNumber !== 'string' || accountNumber.trim() === '' ||
-      !ifscCode || typeof ifscCode !== 'string' || ifscCode.trim() === '' ||
-      !branchName || typeof branchName !== 'string' || branchName.trim() === '' ||
-      !accountName || typeof accountName !== 'string' || accountName.trim() === ''
+      !accountNumber || typeof accountNumber !== "string" || accountNumber.trim() === "" ||
+      !ifscCode || typeof ifscCode !== "string" || ifscCode.trim() === "" ||
+      !branchName || typeof branchName !== "string" || branchName.trim() === "" ||
+      !accountName || typeof accountName !== "string" || accountName.trim() === ""
     ) {
-      return res.status(400).json(apiResponse(400, 'All bank details (accountNumber, ifscCode, branchName, accountName) must be non-empty strings', null));
+      return res.status(400).json(apiResponse(400, "All bank details (accountNumber, ifscCode, branchName, accountName) must be non-empty strings", null));
     }
 
-    // Find the order
-    const order = await UserOrder.findOne({ userId, orderId });
-    if (!order) {
-      return res.status(404).json(apiResponse(404, 'Order not found for this user', null));
+    const results = [];
+    const errors = [];
+
+    // Process each order
+    for (const orderId of orderIds) {
+      try {
+        // Find the order
+        const order = await UserOrder.findOne({ userId, orderId });
+        if (!order) {
+          errors.push({ orderId, message: "Order not found for this user" });
+          continue;
+        }
+
+        // Check if order is in a cancellable state
+        const cancellableStatuses = ["Initiated", "Confirmed", "Ready for Dispatch", "Dispatched"];
+        if (!cancellableStatuses.includes(order.orderStatus)) {
+          errors.push({ orderId, message: `Order cannot be cancelled. Current status: ${order.orderStatus}` });
+          continue;
+        }
+
+        // Update order status to Cancelled
+        order.orderStatus = "Cancelled";
+
+        // Update refund and bank details
+        order.refund.isRefundActive = true;
+        order.refund.status = "Initiated";
+        order.refund.requestDate = new Date();
+        order.refund.amount = order.totalPrice;
+        order.refund.reason = reason.trim();
+        order.BankDetails = {
+          accountNumber: accountNumber.trim(),
+          ifscCode: ifscCode.trim(),
+          branchName: branchName.trim(),
+          accountName: accountName.trim(),
+        };
+
+        // Restore stock in ItemDetail
+        for (const item of order.itemDescription) {
+          const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
+          if (!itemDetail) {
+            errors.push({ orderId, message: `ItemDetail not found for itemId: ${item.itemId}` });
+            continue;
+          }
+
+          const colorEntry = itemDetail.imagesByColor.find(entry => entry.color === item.color);
+          if (!colorEntry) {
+            errors.push({ orderId, message: `Color ${item.color} not found for itemId: ${item.itemId}` });
+            continue;
+          }
+
+          const sizeEntry = colorEntry.sizes.find(size => size.size === item.size && size.skuId === item.skuId);
+          if (!sizeEntry) {
+            errors.push({ orderId, message: `Size ${item.size} or skuId ${item.skuId} not found for color ${item.color}` });
+            continue;
+          }
+
+          // Increment stock (assuming 1 unit per item in order)
+          sizeEntry.stock += 1;
+          await itemDetail.save();
+        }
+
+        // Save the updated order
+        await order.save();
+
+        // Populate referenced fields for response
+        const populatedOrder = await UserOrder.findById(order._id)
+          .populate("userId", "name email")
+          .populate("itemDescription.itemId", "name price")
+          .populate("shippingAddressId", "address city state country postalCode")
+          .populate("invoiceId", "couponDiscount GST shippingCharge");
+
+        results.push({ orderId, order: populatedOrder });
+      } catch (error) {
+        errors.push({ orderId, message: error.message });
+      }
     }
 
-    // Check if order is in a cancellable state
-    const cancellableStatuses = ['Initiated', 'Confirmed', 'Ready for Dispatch', 'Dispatched'];
-    if (!cancellableStatuses.includes(order.orderStatus)) {
-      return res.status(400).json(apiResponse(400, `Order cannot be cancelled. Current status: ${order.orderStatus}`, null));
+    // Prepare response
+    if (errors.length > 0 && results.length === 0) {
+      return res.status(400).json(apiResponse(400, "All orders failed to cancel", { errors }));
     }
 
-    // Update order status to Cancelled
-    order.orderStatus = 'Cancelled';
-
-    // Update refund and bank details for all orders
-    order.refund.isRefundActive = true;
-    order.refund.status = 'Initiated';
-    order.refund.requestDate = new Date();
-    order.refund.amount = order.totalPrice;
-    order.refund.reason = reason.trim();
-    order.BankDetails = {
-      accountNumber: accountNumber.trim(),
-      ifscCode: ifscCode.trim(),
-      branchName: branchName.trim(),
-      accountName: accountName.trim()
+    const response = {
+      results,
+      errors: errors.length > 0 ? errors : undefined,
     };
 
-    // Restore stock in ItemDetail
-    for (const item of order.itemDescription) {
-      const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
-      if (!itemDetail) {
-        return res.status(404).json(apiResponse(404, `ItemDetail not found for itemId: ${item.itemId}`, null));
-      }
+    return res.status(200).json(apiResponse(200, "Order cancellation processed", response));
+  } catch (error) {
+    console.error("Error cancelling orders:", error.message);
+    return res.status(500).json(apiResponse(500, "Server error while cancelling orders", null));
+  }
+};
 
-      const colorEntry = itemDetail.imagesByColor.find(entry => entry.color === item.color);
-      if (!colorEntry) {
-        return res.status(400).json(apiResponse(400, `Color ${item.color} not found for itemId: ${item.itemId}`, null));
-      }
+exports.exchangeOrders = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { orders } = req.body;
 
-      const sizeEntry = colorEntry.sizes.find(size => size.size === item.size && size.skuId === item.skuId);
-      if (!sizeEntry) {
-        return res.status(400).json(apiResponse(400, `Size ${item.size} or skuId ${item.skuId} not found for color ${item.color}`, null));
-      }
-
-      // Increment stock (assuming 1 unit per item in order)
-      sizeEntry.stock += 1;
-      await itemDetail.save();
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
 
-    // Save the updated order
-    await order.save();
+    // Validate orders array
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json(apiResponse(400, "Orders must be a non-empty array", null));
+    }
 
-    // Populate referenced fields for response
-    const populatedOrder = await UserOrder.findById(order._id)
-      .populate('userId', 'name email')
-      .populate('itemDescription.itemId', 'name price')
-      .populate('shippingAddressId', 'address city state country postalCode')
-      .populate('invoiceId', 'couponDiscount GST shippingCharge');
+    const results = [];
+    const errors = [];
 
-    return res.status(200).json(apiResponse(200, 'Order cancelled successfully', { order: populatedOrder }));
+    // Process each order
+    for (const orderData of orders) {
+      const {
+        orderId,
+        reason,
+        specificReason,
+        newItemId,
+        color,
+        size,
+        skuId,
+        isExchange,
+        isReturn,
+      } = orderData;
+
+      try {
+        // Validate orderId
+        if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+          errors.push({ orderId, message: "Valid orderId is required" });
+          continue;
+        }
+
+        // Validate that only one of isExchange or isReturn is true
+        if (isExchange && isReturn) {
+          errors.push({ orderId, message: "Only one of isExchange or isReturn can be true" });
+          continue;
+        }
+
+        if (!isExchange && !isReturn) {
+          errors.push({ orderId, message: "Either isExchange or isReturn must be true" });
+          continue;
+        }
+
+        // Validate reason
+        if (!reason || !["Size too small", "Size too big", "Don't like the fit", "Don't like the quality", "Not same as the catalogue", "Product is damaged", "Wrong product is received", "Product arrived too late"].includes(reason)) {
+          errors.push({ orderId, message: "Valid reason is required" });
+          continue;
+        }
+
+        // Validate specificReason
+        if (!specificReason || typeof specificReason !== "string" || specificReason.trim() === "") {
+          errors.push({ orderId, message: "Specific reason is required" });
+          continue;
+        }
+
+        // Find the order
+        const order = await UserOrder.findOne({ userId, orderId });
+        if (!order) {
+          errors.push({ orderId, message: "Order not found for this user" });
+          continue;
+        }
+
+        // Check if order is in a valid state
+        const validStatuses = ["Confirmed", "Delivered"];
+        if (!validStatuses.includes(order.orderStatus)) {
+          errors.push({ orderId, message: `Order cannot be processed. Current status: ${order.orderStatus}` });
+          continue;
+        }
+
+        if (isReturn) {
+          // Handle return case (update refund field)
+          order.refund.isRefundActive = true;
+          order.refund.requestDate = new Date();
+          order.refund.status = "Initiated";
+          order.refund.amount = order.totalPrice;
+          order.refund.reason = reason;
+          order.exchange.isExchange = false;
+          order.exchange.isReturn = true;
+          order.exchange.requestDate = null;
+          order.exchange.status = "Pending";
+          order.exchange.reason = null;
+          order.exchange.specificReason = specificReason.trim();
+          order.exchange.newItemId = null;
+          order.exchange.color = null;
+          order.exchange.size = null;
+          order.exchange.skuId = null;
+        } else if (isExchange) {
+          // Handle exchange case (update exchange field)
+          console.log("Exchange Input:", { newItemId, color, size, skuId });
+          // Validate new item details
+          if (!newItemId || !mongoose.Types.ObjectId.isValid(newItemId)) {
+            errors.push({ orderId, message: "Valid newItemId is required for exchange" });
+            continue;
+          }
+
+          if (!color || typeof color !== "string" || color.trim() === "") {
+            errors.push({ orderId, message: "Color is required for exchange" });
+            continue;
+          }
+
+          if (!size || typeof size !== "string" || size.trim() === "") {
+            errors.push({ orderId, message: "Size is required for exchange" });
+            continue;
+          }
+
+          if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
+            errors.push({ orderId, message: "Valid skuId is required for exchange" });
+            continue;
+          }
+
+          // Validate new item details against ItemDetail
+          const newItemDetail = await ItemDetail.findOne({ itemId: newItemId });
+          if (!newItemDetail) {
+            errors.push({ orderId, message: `ItemDetail not found for newItemId: ${newItemId}` });
+            continue;
+          }
+          console.log("ItemDetail ImagesByColor:", JSON.stringify(newItemDetail.imagesByColor, null, 2));
+
+          const colorEntry = newItemDetail.imagesByColor.find(entry => entry.color.trim().toLowerCase() === color.trim().toLowerCase());
+          if (!colorEntry) {
+            errors.push({ orderId, message: `Color ${color} not available for newItemId: ${newItemId}` });
+            continue;
+          }
+          console.log("ColorEntry Sizes:", JSON.stringify(colorEntry.sizes, null, 2));
+
+          const sizeEntry = colorEntry.sizes.find(s => s.size.trim() === size.trim() && s.skuId.trim() === skuId.trim());
+          if (!sizeEntry) {
+            errors.push({ orderId, message: `Size ${size} or skuId ${skuId} not available for color ${color} in newItemId: ${newItemId}` });
+            continue;
+          }
+
+          // Check stock availability for new item
+          if (sizeEntry.stock <= 0) {
+            errors.push({ orderId, message: `New item with size ${size} and skuId ${skuId} is out of stock for newItemId: ${newItemId}` });
+            continue;
+          }
+
+          // Update exchange details
+          order.exchange.isExchange = true;
+          order.exchange.isReturn = false;
+          order.exchange.requestDate = new Date();
+          order.exchange.status = "Pending";
+          order.exchange.reason = reason;
+          order.exchange.specificReason = specificReason.trim();
+          order.exchange.newItemId = newItemId;
+          order.exchange.color = color;
+          order.exchange.size = size;
+          order.exchange.skuId = skuId;
+          // Reset refund fields
+          order.refund.isRefundActive = false;
+          order.refund.requestDate = null;
+          order.refund.status = "Pending";
+          order.refund.amount = null;
+          order.refund.reason = null;
+        }
+
+        // Save the updated order
+        await order.save();
+
+        // Populate referenced fields for response
+        const populatedOrder = await UserOrder.findById(order._id)
+          // .populate("userId", "name email")
+          // .populate("itemDescription.itemId", "name MRP")
+          // .populate("shippingAddressId", "address city state country postalCode")
+          // .populate("invoiceId", "couponDiscount GST shippingCharge")
+          // .populate("exchange.newItemId", "name MRP");
+
+        results.push({ orderId, order: populatedOrder });
+      } catch (error) {
+        errors.push({ orderId, message: error.message });
+      }
+    }
+
+    // Prepare response
+    if (errors.length > 0 && results.length === 0) {
+      return res.status(400).json(apiResponse(400, "All orders failed to process", { errors }));
+    }
+
+    const response = {
+      results,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+
+    return res.status(200).json(apiResponse(200, "Orders processed successfully", response));
   } catch (error) {
-    console.error('Error cancelling order:', error.message);
-    return res.status(500).json(apiResponse(500, 'Server error while cancelling order', null));
+    console.error("Error initiating exchange/return:", error.message);
+    return res.status(500).json(apiResponse(500, "Server error while initiating exchange/return", null));
   }
 };

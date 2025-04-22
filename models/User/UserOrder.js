@@ -127,6 +127,7 @@ const orderSchema = new mongoose.Schema(
       },
     },
 
+    //Exchange
     exchange: {
       requestDate: { type: Date, default: null },
       status: {
@@ -134,9 +135,23 @@ const orderSchema = new mongoose.Schema(
         enum: ["Pending", "Approved", "Rejected"],
         default: "Pending",
       },
+      reason:{
+          type:String,
+        enum:["Size too small","Size too big","Don't like the fit","Don't like the quality","Not same as the catalogue","Product is damaged","Wrong product is received","Product arrived too late"]
+      },
+      specificReason:{
+        type:String
+      },
+      isExchange:{
+        type:Boolean
+      },
+
+      isReturn:{
+        type:Boolean
+      },
       newItemId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "ItemId",
+        ref: "Item",
       },
       color: {
         type: String,
@@ -144,6 +159,9 @@ const orderSchema = new mongoose.Schema(
       size: {
         type: String,
       },
+      skuId:{
+        type:String
+      }
     },
 
 

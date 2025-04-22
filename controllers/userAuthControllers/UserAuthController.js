@@ -150,7 +150,7 @@ exports.login = async (req, res) => {
           apiResponse(404, false, "User not found please be first signup ")
         );
     }
-
+    
     // Verify OTP
     const phoneOTP = await PhoneOTP.findOne({ phoneNumber });
     if (!phoneOTP) {
