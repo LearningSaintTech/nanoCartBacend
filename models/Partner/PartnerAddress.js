@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const AddressSchema = new mongoose.Schema(
   {
-    userId: {
+    partnerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Partner",
       required: true,

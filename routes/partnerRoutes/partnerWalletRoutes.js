@@ -5,8 +5,6 @@ const {
   addFunds,
   deductFunds,
   getWalletDetails,
-  toggleWalletStatus,
-  getTransactionHistory,
 } = require("../../controllers/partnerController/partnerWalletController"); // Adjust path as needed
 const {verifyToken} = require("../../middlewares/verifyToken"); // Adjust path as needed
 const {isPartner} = require("../../middlewares/isPartner"); // Adjust path as needed
@@ -24,13 +22,6 @@ router.post("/deduct-funds", verifyToken, isPartner,deductFunds);
 // Get partner's wallet details (INR)
 router.get("/", verifyToken,isPartner, getWalletDetails);
 
-// Toggle wallet active status (INR)
-router.post("/toggle-status", verifyToken,isPartner, toggleWalletStatus);
 
-// Get transaction history in date, orderId, description, amount format
-router.get(
-    "/:partnerId/transaction-history",
-    getTransactionHistory
-  );
 
 module.exports = router;

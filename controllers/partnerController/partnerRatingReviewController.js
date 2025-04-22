@@ -78,9 +78,11 @@ exports.createRatingReview = async (req, res) => {
     // Upload images to S3 if present
     let uploadedImages = [];
     if (req.files && req.files.length > 0) {
+      console.log("111111111")
       const folder = `Nanocart/partner/${partnerId}/ratingsReviews/${newRatingReview._id}/customerImages`;
       uploadedImages = await uploadMultipleImagesToS3(req.files, folder);
       newRatingReview.customerProductImage = uploadedImages;
+      console.log("222222222222222")
     }
 
     // Save the new review
@@ -213,7 +215,7 @@ exports.getRatingsAndReviewsByItemDetailId = async (req, res) => {
     }
 
     const reviews = await PartnerRatingReview.find({ itemDetailId })
-      .populate("userId", "name") // Get user's name
+      .populate("partnerId", "name") // Get user's name
       .sort({ createdAt: -1 }); // Latest first
 
     if (!reviews || reviews.length === 0) {

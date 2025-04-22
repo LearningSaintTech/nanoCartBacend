@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const Wallet = require("../../models/Partner/PartnerWallet"); // Adjust path to Wallet model
-const apiResponse = require("../../utils/apiResponse"); // Adjust path to apiResponse utility
+const {apiResponse} = require("../../utils/apiResponse"); // Adjust path to apiResponse utility
 
 
 // Create a new wallet for a partner (INR)
@@ -102,7 +102,7 @@ exports.deductFunds = async (req, res) => {
         .status(400)
         .json(apiResponse(400, false, "Amount must be in whole rupees"));
     }
-    if (orderId && !mongoose.Types.ObjectId.isValid(orderId)) {
+    if (!orderId) {
       return res
         .status(400)
         .json(apiResponse(400, false, "Invalid orderId"));
@@ -164,67 +164,3 @@ exports.getWalletDetails = async (req, res) => {
 };
 
 
-
-// Toggle wallet active status (INR)
-exports.toggleWalletStatus = async (req, res) => {
-  try {
-    const { partnerId } = req.user;
-
-    // Find wallet
-    const wallet = await Wallet.findOne({ partnerId });
-    if (!wallet) {
-      return res.status(404).json(apiResponse(404, false, "Wallet not found"));
-    }
-
-    // Toggle isActive status
-    const newStatus = !wallet.isActive;
-    wallet.isActive = newStatus;
-    await wallet.save();
-
-    const message = newStatus
-      ? "Wallet activated successfully"
-      : "Wallet deactivated successfully";
-
-    return res
-      .status(200)
-      .json(
-        apiResponse(200, true, message, {
-          wallet,
-          currency: wallet.currency,
-        })
-      );
-  } catch (error) {
-    console.error("Error in toggleWalletStatus (Partner):", error.message);
-    res.status(500).json(apiResponse(500, false, error.message));
-  }
-};
-
-
-exports.getTransactionHistory = async (req, res) => {
-  try {
-    const { partnerId } = req.params;
-
-    const wallet = await Wallet.findOne({ partnerId });
-    if (!wallet) {
-      return res.status(404).json(apiResponse(404, false, "Wallet not found"));
-    }
-
-    // Format transaction log
-    const transactionLog = wallet.transactions
-      .sort((a, b) => b.createdAt - a.createdAt) // latest first
-      .map(txn => ({
-        date: txn.createdAt.toISOString(), 
-        orderId: txn.orderId,
-        description: txn.description,
-        amount: txn.amount
-      }));
-
-    res.status(200).json();
-    res.status(200).json(apiResponse(200,true,"Fetech Successfully",{
-      balance: wallet.totalBalance,
-      transactionLog
-    }));
-  } catch (error) {
-    res.status(500).json(apiResponse(500,false,error.message));
-  }
-};

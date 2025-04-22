@@ -40,8 +40,7 @@ const WalletSchema = new mongoose.Schema({
         default: "",
       },
       orderId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "PartnerOrder",
+        type:String
       },
       status: {
         type: String,
