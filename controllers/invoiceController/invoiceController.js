@@ -1,123 +1,84 @@
 const Invoice = require("../../models/Invoice/Invoice");
-const { apiResponse } = require("../../utils/apiResponse");
+const {apiResponse}=require("../../")
 
+
+
+// Create a new invoice
 exports.createInvoice = async (req, res) => {
   try {
-    const { itemId, couponDiscount, GST, shippingCharge, islocal, isGlobal } =
-      req.body;
-
-    // Ensure only one of islocal or isGlobal is true
-    if (islocal && isGlobal) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(400, false, "Invoice can't be both local and global")
-        );
-    }
-
-    if (islocal && !itemId) {
-      return res
-        .status(400)
-        .json(apiResponse(400, false, "itemId is required for local invoice"));
-    }
+    const { key, values } = req.body;
 
     const newInvoice = new Invoice({
-      itemId: islocal ? itemId : null,
-      couponDiscount,
-      GST,
-      shippingCharge,
-      islocal,
-      isGlobal,
+      key,
+      values,
     });
 
-    await newInvoice.save();
+    const savedInvoice = await newInvoice.save();
 
-    return res
-      .status(201)
-      .json(apiResponse(201, true, "Invoice created", newInvoice));
+    return apiResponse(res, 201, true, "Invoice created successfully", savedInvoice);
   } catch (error) {
-    return res
-      .status(500)
-      .json(apiResponse(500, false, "Error creating invoice", error.message));
+    return apiResponse(res, 500, false, "Error creating invoice");
   }
 };
 
+// Get invoice by ID
+exports.getInvoiceById = async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+
+    if (!invoice) {
+      return apiResponse(res, 404, false, "Invoice not found");
+    }
+
+    return apiResponse(res, 200, true, "Invoice fetched successfully", invoice);
+  } catch (error) {
+    return apiResponse(res, 500, false, "Error fetching invoice");
+  }
+};
+
+// Get all invoices
+exports.getAllInvoices = async (req, res) => {
+  try {
+    const invoices = await Invoice.find().sort({ createdAt: -1 });
+
+    return apiResponse(res, 200, true, "Invoices fetched successfully", invoices);
+  } catch (error) {
+    return apiResponse(res, 500, false, "Error fetching invoices");
+  }
+};
+
+// Update an invoice
 exports.updateInvoice = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { couponDiscount, GST, shippingCharge } = req.body;
+    const { key, values } = req.body;
 
-    const updatedInvoice = await Invoice.findByIdAndUpdate(
-      id,
-      {
-        couponDiscount,
-        GST,
-        shippingCharge,
-      },
+    const invoice = await Invoice.findByIdAndUpdate(
+      req.params.id,
+      { key, values, updatedAt: Date.now() },
       { new: true }
     );
 
-    if (!updatedInvoice) {
-      return res.status(404).json(apiResponse(404, false, "Invoice not found"));
+    if (!invoice) {
+      return apiResponse(res, 404, false, "Invoice not found");
     }
 
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "Invoice updated", updatedInvoice));
+    return apiResponse(res, 200, true, "Invoice updated successfully", invoice);
   } catch (error) {
-    return res
-      .status(500)
-      .json(apiResponse(500, false, "Error updating invoice", error.message));
+    return apiResponse(res, 500, false, "Error updating invoice");
   }
 };
 
+// Delete an invoice
 exports.deleteInvoice = async (req, res) => {
   try {
-    const { id } = req.params;
-    const deleted = await Invoice.findByIdAndDelete(id);
-
-    if (!deleted) {
-      return res.status(404).json(apiResponse(404, false, "Invoice not found"));
-    }
-
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "Invoice deleted successfully"));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(apiResponse(500, false, "Error deleting invoice", error.message));
-  }
-};
-
-exports.getAllInvoices = async (req, res) => {
-  try {
-    const invoices = await Invoice.find().populate("itemId", "name MRP discountedPrice");
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "All invoices", invoices));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(apiResponse(500, false, "Error fetching invoices", error.message));
-  }
-};
-
-exports.getInvoiceById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const invoice = await Invoice.findById(id).populate("itemId", "name price");
+    const invoice = await Invoice.findByIdAndDelete(req.params.id);
 
     if (!invoice) {
-      return res.status(404).json(apiResponse(404, false, "Invoice not found"));
+      return apiResponse(res, 404, false, "Invoice not found");
     }
 
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "Invoice fetched", invoice));
+    return apiResponse(res, 200, true, "Invoice deleted successfully");
   } catch (error) {
-    return res
-      .status(500)
-      .json(apiResponse(500, false, "Error fetching invoice", error.message));
+    return apiResponse(res, 500, false, "Error deleting invoice");
   }
 };

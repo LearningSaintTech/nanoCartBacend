@@ -11,172 +11,106 @@ const orderSchema = new mongoose.Schema(
       ref: "Partner",
       required: true,
     },
-
-    // Order Items
-    itemDescription: [
+    orderDetails: [
       {
         itemId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Item",
           required: true,
         },
-        color: {
-          type: String,
-        },
-        size: {
-          type: String,
-        },
-        skuId: {
-          type: String,
-        },
+        color: { type: String },
+        size: { type: String },
+        quantity: { type: Number, min: 1, required: true },
+        skuId: { type: String },
       },
     ],
-
-    invoiceId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Invoice",
+    invoice:{
+      key: {
+        type: String,
+        trim: true,
+        lowercase: true,
+      },
+      values: [
+        {
+          type: String,
+        },
+      ],
     },
-    totalPrice: {
-      type: Number,
-    },
-
-    // Shipping Information
     shippingAddressId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PartnerAddress",
     },
-
-    // Payment Information This is for online Payment
     paymentMethod: {
       type: String,
-      enum: ["Online", "COD"],
+      enum: ["Online", "COD","Wallet"],
     },
     paymentStatus: {
       type: String,
       enum: ["Pending", "Paid", "Failed", "Refunded"],
       default: "Pending",
     },
-    razorpayOrderId: {
-      type: String,
-      // required: true,
-      default: null,
-    },
-    razorpayPaymentId: {
-      type: String,
-      default: null,
-      // required: true,
-    },
-    razorpaySignature: {
-      type: String,
-      default: null,
-      // required: true,
-    },
+    razorpayOrderId: { type: String, default: null },
+    razorpayPaymentId: { type: String, default: null },
+    razorpaySignature: { type: String, default: null },
 
-    isOrderPlaced: {
-      type: Boolean,
-      default: false,
-    },
-    // Order Status
+    isOrderPlaced: { type: Boolean, default: false },
     orderStatus: {
       type: String,
       enum: [
+        "In transit",
+        "Initiated",
         "Confirmed",
         "Ready for Dispatch",
         "Dispatched",
         "Delivered",
         "Cancelled",
         "Returned",
-        "Initiated",
       ],
+      default: "In transit",
     },
 
-    // Refund
     refund: {
-      isRefundActive: {
-        type: Boolean,
-        default: false,
-      },
+      isRefundActive: { type: Boolean, default: false },
       requestDate: { type: Date, default: null },
       status: {
         type: String,
-        enum: ["Pending", "Approved", "Rejected", "Processed", "Initiated"],
+        enum: ["Pending", "Approved", "Rejected", "Initiated", "Processed"],
         default: "Pending",
       },
-      amount: { type: Number, default: null },
-      reason: {
+      amount: {
+        type: Number,
+        min: 0,
+        default: null,
+      },
+      reason: { type: String },
+      refundTransactionId: { type: String, default: null },
+      refundStatus: {
         type: String,
+        enum: ["Initiated", "Processing", "Completed", null],
+        default: null,
       },
-      refundTransactionId: { type: String },
-      refundStatus: { type: String },
-    },
-
-    BankDetails: {
-      accountNumber: {
-        type: String,
-      },
-      ifscCode: {
-        type: String,
-      },
-      branchName: {
-        type: String,
-      },
-      accountName: {
-        type: String,
-      },
-    },
-
-    //Exchange
-    exchange: {
-      requestDate: { type: Date, default: null },
-      status: {
-        type: String,
-        enum: ["Pending", "Approved", "Rejected"],
-        default: "Pending",
-      },
-      reason: {
-        type: String,
-        enum: [
-          "Size too small",
-          "Size too big",
-          "Don't like the fit",
-          "Don't like the quality",
-          "Not same as the catalogue",
-          "Product is damaged",
-          "Wrong product is received",
-          "Product arrived too late",
-        ],
-      },
-      specificReason: {
-        type: String,
-      },
-      isExchange: {
-        type: Boolean,
-      },
-
-      isReturn: {
-        type: Boolean,
-      },
-      newItemId: {
+      pickupLocation: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Item",
+        ref: "UserAddress",
+        default: null,
       },
-      color: {
+      refundMethod: {
         type: String,
-      },
-      size: {
-        type: String,
-      },
-      skuId: {
-        type: String,
+        enum: ["Bank Transfer", "Original Payment Method", null],
+        default: null,
       },
     },
 
-    deliveryDate: {
-      type: Date,
+    bankDetails: {
+      type: {
+        accountNumber: String,
+        ifscCode: String,
+        branchName: String,
+        accountName: String,
+      },
+      default: null,
     },
-    expiresAt: {
-      type: Date,
-    },
+    deliveryDate: { type: Date },
   },
   { timestamps: true }
 );

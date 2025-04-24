@@ -1,25 +1,19 @@
 const mongoose = require("mongoose");
 
-const invoiceSchema = new mongoose.Schema({
-  itemId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Item",
+const invoiceSchema = new mongoose.Schema(
+  {
+    key: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    values: [
+      {
+        type: String,
+      },
+    ],
   },
-  couponDiscount: {
-    type: Number,
-  },
-  GST: {
-    type: Number,
-  },
-  shippingCharge: {
-    type: Number,
-  },
-  islocal: {
-    type: Boolean,
-  },
-  isGlobal: {
-    type: Boolean,
-  },
-});
+  { timestamps: true }
+);
 
 module.exports = mongoose.model("Invoice", invoiceSchema);

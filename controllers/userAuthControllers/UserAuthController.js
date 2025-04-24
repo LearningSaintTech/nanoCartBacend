@@ -13,7 +13,7 @@ exports.sendPhoneOtp = async (req, res) => {
         .status(400)
         .json(apiResponse(400, false, "Valid 10-digit phone number required"));
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString(); 
 
     // TODO: Implement SMS sending logic
     // await sendSMS(phoneNumber, `Your OTP is ${otp}`);

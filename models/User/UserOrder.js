@@ -2,52 +2,55 @@ const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema(
   {
-    orderId:{
-      type:String,
-      required:true
+    orderId: {
+      type: String,
+      required: true,
     },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-
-    // Order Items
-    itemDescription: [
+    orderDetails: [
       {
         itemId: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Item",
+          ref: "Item", 
           required: true,
         },
-        color: {
-          type: String,
+        color: { type: String },
+        size: { type: String },
+        quantity: { type: Number, min: 1, required: true },
+        skuId: { type: String },
+        isItemCancel:{
+          type:Boolean,
+          default:false
+
         },
-        size: {
-          type: String,
-        },
-        skuId:{
-          type:String
+        isItemExchange:{
+          type:Boolean,
+          default:false
         }
       },
-      
     ],
-
-    invoiceId:{
-      type: mongoose.Schema.Types.ObjectId,
-      ref:"Invoice"
-    },
-    totalPrice: {
-      type: Number,
-    },
-
-    // Shipping Information
+    invoice: [
+      {
+        key: {
+          type: String,
+          trim: true,
+          lowercase: true,
+          required: true,
+        },
+        value: {
+          type: String,
+          required: true,
+        },
+      }
+    ],
     shippingAddressId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "UserAddress",
     },
-
-    // Payment Information This is for online Payment
     paymentMethod: {
       type: String,
       enum: ["Online", "COD"],
@@ -57,120 +60,108 @@ const orderSchema = new mongoose.Schema(
       enum: ["Pending", "Paid", "Failed", "Refunded"],
       default: "Pending",
     },
-    razorpayOrderId: {
-      type: String,
-      // required: true,
-      default:null
-    },
-    razorpayPaymentId: {
-      type: String,
-      default:null,
-      // required: true,
-     
-    },
-    razorpaySignature: {
-      type: String,
-      default:null,
-      // required: true,
-    },
+    razorpayOrderId: { type: String, default: null },
+    razorpayPaymentId: { type: String, default: null },
+    razorpaySignature: { type: String, default: null },
 
-    isOrderPlaced: {
-      type: Boolean,
-      default: false,
-    },
-    // Order Status
+    
     orderStatus: {
       type: String,
       enum: [
+        "Initiated",
         "Confirmed",
         "Ready for Dispatch",
         "Dispatched",
         "Delivered",
         "Cancelled",
         "Returned",
-        "Initiated",
       ],
+      default: "Initiated",
+    },
+    isOrderPlaced: { type: Boolean, default: false },
+    isOrderCancelled:{
+      type:Boolean,
+      default:false
+    },
+    totalAmount:{
+      type:Number,
+      required:true
     },
 
-    // Refund
-    refund: {
-      isRefundActive:{
-        type:Boolean,
-        default:false
-      },
-      requestDate: { type: Date, default: null },
-      status: {
-        type: String,
-        enum: ["Pending", "Approved", "Rejected", "Processed", "Initiated"],
-        default: "Pending",
-      },
-      amount: { type: Number, default: null },
-      reason: {
-        type: String,
-      },
-      refundTransactionId: { type: String,},
-      refundStatus: { type: String,},
-    },
 
-    BankDetails: {
-      accountNumber: {
-        type: String,
-      },
-      ifscCode: {
-        type: String,
-      },
-      branchName: {
-        type: String,
-      },
-      accountName: {
-        type: String,
-      },
-    },
 
-    //Exchange
-    exchange: {
-      requestDate: { type: Date, default: null },
-      status: {
-        type: String,
-        enum: ["Pending", "Approved", "Rejected"],
-        default: "Pending",
-      },
-      reason:{
-          type:String,
-        enum:["Size too small","Size too big","Don't like the fit","Don't like the quality","Not same as the catalogue","Product is damaged","Wrong product is received","Product arrived too late"]
-      },
-      specificReason:{
-        type:String
-      },
-      isExchange:{
-        type:Boolean
-      },
-
-      isReturn:{
-        type:Boolean
-      },
-      newItemId: {
+    refund: [{
+      itemId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Item",
+        ref: "Item", 
+        required: true,
       },
-      color: {
+      refundReason: { type: String },
+      requestDate: { type: Date, default: null },
+      refundAmount: {
+        type: Number,
+        min: 0,
+        default: null,
+      },
+      refundTransactionId: { type: String, default: null },
+      refundStatus: {
         type: String,
+        enum: ["Initiated", "Processing", "Completed"],
+        default: null,
       },
-      size: {
+      bankDetails: {
+        type: {
+          accountNumber: String,
+          ifscCode: String,
+          branchName: String,
+          accountName: String,
+        },
+        default: null,
+      },
+    },
+  ],
+
+  
+
+    
+    exchange: [{
+      itemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Item", 
+        required: true,
+      },
+      requestDate: { type: Date, default: null },
+      exchangeReason: {
         type: String,
+        enum: [
+          "Size too small",
+          "Size too big",
+          "Don't like the fit",
+          "Don't like the quality",
+          "Not same as the catalogue",
+          "Product is damaged",
+          "Wrong product is received",
+          "Product arrived too late",
+        ],
       },
-      skuId:{
-        type:String
-      }
-    },
+      exchangeSpecificReason: { type: String },
+      isReturnRefund:{
+        type:Boolean
+      },
+      color: { type: String },
+      size: { type: String },
+      skuId: { type: String },
+      isSizeAvailability: {
+        type:Boolean
+      },
+      pickupLocationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "UserAddress",
+        default: null,
+      },
+    }],
 
-
-    deliveryDate:{
-      type:Date
-    },
-    expiresAt:{
-      type:Date
-    }
+    deliveryDate: { type: Date },
   },
   { timestamps: true }
 );
