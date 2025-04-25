@@ -153,23 +153,23 @@ exports.getUserWishlist = async (req, res) => {
     console.log("Starting getUserWishlist");
     const { userId } = req.user;
 
-    // Find wishlist by user ID with population
+    // Correctly populate itemId before awaiting
     const wishlist = await UserWishlist.findOne({ userId })
-    console.log(wishlist)
-    // .populate({
-    //   path: "items.itemId",
-    //   select: "name MRP image categoryId subCategoryId",
-    //   populate: [
-    //     { path: "categoryId", select: "name" },
-    //     { path: "subCategoryId", select: "name" },
-    //   ],
-    // });
+      .populate({
+        path: "items.itemId",
+      });
+
+    console.log("Fetched wishlist:", wishlist);
 
     if (!wishlist || wishlist.items.length === 0) {
-      return res.status(200).json(apiResponse(200, true, "Wishlist is empty", { userId, items: [] }));
+      return res
+        .status(200)
+        .json(apiResponse(200, true, "Wishlist is empty", { userId, items: [] }));
     }
 
-    return res.status(200).json(apiResponse(200, true, "Wishlist fetched successfully", wishlist));
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "Wishlist fetched successfully", wishlist));
   } catch (error) {
     console.error("Error in getUserWishlist:", {
       message: error.message,

@@ -63,7 +63,7 @@ app.use("/api/filter",filterRoutes)
 app.use("/api/user/ratingreview",userRatingAndReviewRoutes)
 app.use("/api/user/address",userAddressRoutes)
 app.use("/api/invoice",invoiceRoutes)
-app.use("/api/user/order",userOrderRoutes)
+// app.use("/api/user/order",userOrderRoutes)
 app.use("/api/user/tbyb",userTBYBRoutes)
 
 
@@ -75,7 +75,7 @@ app.use("/api/partner/cart",partnerCartRoutes)
 app.use("/api/partner/ratingreview",partnerRatingReview)
 app.use("/api/wallet", partnerWalletRoutes);
 app.use("/api/partner/address",partnerAddress)
-app.use("/api/partner/order", partnerOrderRoutes);
+// app.use("/api/partner/order", partnerOrderRoutes);
 
 
 
