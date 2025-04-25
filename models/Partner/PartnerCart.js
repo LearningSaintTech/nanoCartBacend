@@ -16,26 +16,30 @@ const cartSchema = new Schema(
           ref: "Item",
           required: [true, "itemId is required"],
         },
-        colors: [
+        orderDetails: [
           {
-            color:{
-              type:String
-            },
-            size: {
+            color: {
               type: String,
-              trim: true,
-              lowercase: true,
             },
-            quantity: {
-              type: Number,
-              default: 1,
-              min: [1, "Quantity must be at least 1"],
-            },
-            skuId: {
-              type: String,
-              required: [true, "skuId is required"],
-              trim: true,
-            },
+            sizeAndQuantity: [
+              {
+                size: {
+                  type: String,
+                  trim: true,
+                  lowercase: true,
+                },
+                quantity: {
+                  type: Number,
+                  default: 1,
+                  min: [1, "Quantity must be at least 1"],
+                },
+                skuId: {
+                  type: String,
+                  required: [true, "skuId is required"],
+                  trim: true,
+                },
+              },
+            ],
           },
         ],
         totalQuantity: {
@@ -48,7 +52,6 @@ const cartSchema = new Schema(
           default: 1,
           min: [1, "Quantity must be at least 1"],
         },
-
         addedAt: {
           type: Date,
           default: Date.now,
@@ -61,12 +64,5 @@ const cartSchema = new Schema(
   }
 );
 
-// Index for efficient querying of cart items
-cartSchema.index({
-  "items.itemId": 1,
-  "items.color": 1,
-  "items.size": 1,
-  "items.skuId": 1,
-});
 
 module.exports = mongoose.model("PartnerCart", cartSchema);

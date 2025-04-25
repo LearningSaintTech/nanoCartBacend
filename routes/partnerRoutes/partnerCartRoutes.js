@@ -6,7 +6,6 @@ const {
   addToCart,
   removeItemFromCart,
   getPartnerCart, 
-  updateCartItemQuantity,
 } = require("../../controllers/partnerController/partnerCartController");
 
 const { verifyToken } = require("../../middlewares/verifyToken");
@@ -21,7 +20,6 @@ router.delete("/removeitem", verifyToken, isPartner, removeItemFromCart);
 // Route to fetch the partner's cartG
 router.get("/", verifyToken, isPartner, getPartnerCart);
 
-// Route to update item quantity in partner's cart
-router.put("/update-quantity",verifyToken ,isPartner, updateCartItemQuantity);
+
 
 module.exports = router;
