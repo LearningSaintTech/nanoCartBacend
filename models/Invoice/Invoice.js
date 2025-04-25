@@ -1,19 +1,24 @@
 const mongoose = require("mongoose");
 
-const invoiceSchema = new mongoose.Schema(
+const InvoiceSchema = new mongoose.Schema(
   {
-    key: {
-      type: String,
-      trim: true,
-      lowercase: true,
-    },
-    values: [
+    invoice: [
       {
-        type: String,
+        key: {
+          type: String,
+          required: true,
+          trim: true,
+          lowercase: true,
+        },
+        values: {
+          type: String,
+          required: true,
+        },
       },
     ],
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Invoice", invoiceSchema);
+module.exports= mongoose.model("Invoice", InvoiceSchema);
+

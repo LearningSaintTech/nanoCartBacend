@@ -12,14 +12,14 @@ const mongoose = require("mongoose");
 const { apiResponse } = require("../../utils/apiResponse");
 exports.createItem = async (req, res) => {
   try {
-    const { name, MRP, totalStock, subCategoryId, categoryId, description, discountedPrice, filters} = req.body;
+    const { name, MRP, totalStock, subCategoryId, categoryId, description,defaultColor, discountedPrice, filters} = req.body;
 
     console.log(req.body);
     console.log(req.file);
 
     // Validate required fields
-    if (!name || !MRP || !totalStock || !subCategoryId || !categoryId || !req.file) {
-      return res.status(400).json(apiResponse(400, false, "Name, MRP, totalStock, subCategoryId, categoryId, and image are required"));
+    if (!name || !MRP || !totalStock || !subCategoryId || !categoryId || !defaultColor || !req.file) {
+      return res.status(400).json(apiResponse(400, false, "Name, MRP, totalStock, subCategoryId, categoryId, color and image are required"));
     }
 
     // Validate numeric fields
@@ -80,6 +80,7 @@ exports.createItem = async (req, res) => {
       subCategoryId,
       filters: parsedFilters,
       image: imageUrl,
+      defaultColor
     });
 
     await item.save();
@@ -136,7 +137,7 @@ exports.deleteItem = async (req, res) => {
 exports.updateItem = async (req, res) => {
   try {
     const { itemId } = req.params;
-    const { name, description, MRP, totalStock, discountedPrice, filters } = req.body;
+    const { name, description, MRP, totalStock, discountedPrice, defaultColor,filters } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json(apiResponse(400, false, "Invalid Item ID"));
@@ -175,6 +176,7 @@ exports.updateItem = async (req, res) => {
     if (MRP) item.MRP = Number(MRP);
     if (totalStock) item.totalStock = Number(totalStock);
     if (discountedPrice) item.discountedPrice = Number(discountedPrice);
+    if (defaultColor) item.defaultColor = defaultColor;
 
     // Update filters if provided
     if (Array.isArray(filters) && filters.length > 0) {

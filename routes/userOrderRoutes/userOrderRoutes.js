@@ -23,10 +23,10 @@ router.get('/confirmed', verifyToken, isUser, fetchConfirmedUserOrders);
 // Fetch specific order by orderId and all user orders
 router.get('/:orderId', verifyToken, isUser,fetchOrderByOrderId);
 
-//routes to cancel Order
-router.put("/cancel",verifyToken,isUser,cancelOrders)
+// //routes to cancel Order
+// router.put("/cancel",verifyToken,isUser,cancelOrders)
 
-//routes for exchange Order
-router.put("/exchange",verifyToken,isUser,exchangeOrders)
+// //routes for exchange Order
+// router.put("/exchange",verifyToken,isUser,exchangeOrders)
 
 module.exports = router;

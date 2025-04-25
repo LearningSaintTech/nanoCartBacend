@@ -9,6 +9,9 @@ const itemSchema = new mongoose.Schema(
     image: { type: String, required: true },
     discountedPrice: { type: Number, min: 0 },
     discountPercentage: { type: Number, default: 0 },
+    defaultColor:{
+      type:String
+    },
     isItemDetail: { type: Boolean, default: false },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,

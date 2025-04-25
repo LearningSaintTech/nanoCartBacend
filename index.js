@@ -33,11 +33,11 @@ const userTBYBRoutes=require("./routes/userTBYBRoutes/userTBYBRoutes");
 const partnerAuthRoutes=require("./routes/partnerRoutes/partnerAuthRoutes");
 const partnerProfileRoutes=require("./routes/partnerRoutes/partnerProfileRoutes")
 const partnerWishlistRoutes=require("./routes/partnerRoutes/partnerWishlistRoutes");
-const partnerCartRoutes=require("./routes/partnerRoutes/partnerCartRoutes")
+// const partnerCartRoutes=require("./routes/partnerRoutes/partnerCartRoutes")
 const partnerRatingReview=require("./routes/partnerRoutes/partnerRatingAndReview")
 const partnerAddress=require("./routes/partnerRoutes/partnerAddress")
 const partnerWalletRoutes=require("./routes/partnerRoutes/partnerWalletRoutes")
-const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrder");
+// const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrder");
 
 
  
@@ -63,7 +63,7 @@ app.use("/api/filter",filterRoutes)
 app.use("/api/user/ratingreview",userRatingAndReviewRoutes)
 app.use("/api/user/address",userAddressRoutes)
 app.use("/api/invoice",invoiceRoutes)
-// app.use("/api/user/order",userOrderRoutes)
+app.use("/api/user/order",userOrderRoutes)
 app.use("/api/user/tbyb",userTBYBRoutes)
 
 
@@ -71,7 +71,7 @@ app.use("/api/user/tbyb",userTBYBRoutes)
 app.use("/api/auth/partner",partnerAuthRoutes);
 app.use("/api/partner/profile",partnerProfileRoutes);
 app.use("/api/partner/wishlist",partnerWishlistRoutes)
-app.use("/api/partner/cart",partnerCartRoutes)
+// app.use("/api/partner/cart",partnerCartRoutes)
 app.use("/api/partner/ratingreview",partnerRatingReview)
 app.use("/api/wallet", partnerWalletRoutes);
 app.use("/api/partner/address",partnerAddress)
