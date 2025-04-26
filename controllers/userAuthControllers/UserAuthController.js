@@ -271,6 +271,8 @@ exports.login = async (req, res) => {
 };
 
 
+
+
 exports.getUserProfile = async (req, res) => {
   try {
     const { userId } = req.user;
@@ -293,6 +295,45 @@ exports.getUserProfile = async (req, res) => {
       .json(apiResponse(200, true, "User profile fetched successfully", data));
 
   } catch (error) {
+    return res
+      .status(500)
+      .json(apiResponse(500, false, error.message));
+  }
+};
+
+
+
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.user; // userId from token or session
+    const { name, email } = req.body; // name and email from frontend
+
+    if (!name || !email) {
+      return res.status(400).json(apiResponse(400, false, "Name and Email are required"));
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { name, email },
+      { new: true, runValidators: true, select: "name email phoneNumber" }
+    );
+
+    if (!updatedUser) {
+      return res.status(400).json(apiResponse(400, false, "User not Found"));
+    }
+
+    const data = {
+      name: updatedUser.name,
+      email: updatedUser.email,
+      phoneNumber: updatedUser.phoneNumber, // we send phoneNumber too (like in getUserProfile)
+    };
+
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "User profile updated successfully", data));
+
+  } catch (error) {
+    console.error("Update user profile error:", error.message);
     return res
       .status(500)
       .json(apiResponse(500, false, error.message));
