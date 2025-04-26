@@ -161,27 +161,69 @@ exports.removeItemFromCart = async (req, res) => {
   }
 };
 
+
 // Get User's Cart
+// exports.getUserCart = async (req, res) => {
+//   try {
+//     console.log("Starting getUserCart");
+//     const { userId } = req.user;
+
+//     const cart = await UserCart.findOne({ userId })
+//       .populate("items.itemId", "image name description");  // populate only these fields
+
+//     if (!cart || cart.items.length === 0) {
+//       return res.status(200).json(apiResponse(200, true, "Cart is empty", { userId, items: [] }));
+//     }
+
+//     return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", cart));
+//   } catch (error) {
+//     console.error("Get cart error:", {
+//       message: error.message,
+//       stack: error.stack,
+//     });
+//     return res.status(500).json(apiResponse(500, false, error.message));
+//   }
+// };
+
 exports.getUserCart = async (req, res) => {
   try {
     console.log("Starting getUserCart");
     const { userId } = req.user;
 
-    const cart = await UserCart.findOne({ userId })
-    // .populate({
-    //   path: "items.itemId",
-    //   select: "name MRP image categoryId subCategoryId",
-    //   populate: [
-    //     { path: "categoryId", select: "name" },
-    //     { path: "subCategoryId", select: "name" },
-    //   ],
-    // });
+    let cart = await UserCart.findOne({ userId })
+      .populate("items.itemId", "image name description");
 
     if (!cart || cart.items.length === 0) {
       return res.status(200).json(apiResponse(200, true, "Cart is empty", { userId, items: [] }));
     }
 
-    return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", cart));
+    // Now, for each cart item, fetch images from ItemDetail
+    const updatedItems = await Promise.all(
+      cart.items.map(async (item) => {
+        const itemDetail = await ItemDetail.findOne({ itemId: item.itemId._id });
+
+        if (itemDetail) {
+          const colorData = itemDetail.imagesByColor.find(colorObj => colorObj.color === item.color);
+          
+          return {
+            ...item.toObject(), // convert mongoose document to plain object
+            images: colorData ? colorData.images : [], // add images field
+          };
+        } else {
+          return {
+            ...item.toObject(),
+            images: [], // if no ItemDetail found
+          };
+        }
+      })
+    );
+
+    const updatedCart = {
+      ...cart.toObject(), 
+      items: updatedItems,
+    };
+
+    return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", updatedCart));
   } catch (error) {
     console.error("Get cart error:", {
       message: error.message,
@@ -190,85 +232,6 @@ exports.getUserCart = async (req, res) => {
     return res.status(500).json(apiResponse(500, false, error.message));
   }
 };
-
-// // Update Item Quantity in Cart
-// exports.updateCartItemQuantity = async (req, res) => {
-//   try {
-//     console.log("Starting updateCartItemQuantity");
-//     console.log("Request body:", req.body);
-//     const { userId } = req.user;
-//     const { itemId, size, color, skuId, action } = req.body;
-
-//     // Validate required fields
-//     if (!itemId || !size || !color || !skuId || !action) {
-//       return res.status(400).json(
-//         apiResponse(400, false, "itemId, size, color, skuId, and action are required")
-//       );
-//     }
-//     if (!mongoose.Types.ObjectId.isValid(itemId)) {
-//       return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
-//     }
-
-//     // Convert action to lowercase
-//     const normalizedAction = action.toLowerCase();
-//     if (!["increase", "decrease"].includes(normalizedAction)) {
-//       return res.status(400).json(apiResponse(400, false, "Action must be 'increase' or 'decrease'"));
-//     }
-
-//     // Find the cart
-//     const cart = await UserCart.findOne({ userId });
-//     if (!cart) {
-//       return res.status(404).json(apiResponse(404, false, "Cart not found"));
-//     }
-
-//     // Find the item in the cart
-//     const itemIndex = cart.items.findIndex(
-//       (i) =>
-//         i.itemId.toString() === itemId &&
-//         i.color.toLowerCase() === color.toLowerCase() &&
-//         i.size === size &&
-//         i.skuId === skuId
-//     );
-//     if (itemIndex === -1) {
-//       return res.status(404).json(apiResponse(404, false, "Item not found in cart"));
-//     }
-
-//     // Update quantity
-//     if (normalizedAction === "increase") {
-//       cart.items[itemIndex].quantity += 1;
-//     } else if (normalizedAction === "decrease") {
-//       if (cart.items[itemIndex].quantity <= 1) {
-//         cart.items.splice(itemIndex, 1);
-//       } else {
-//         cart.items[itemIndex].quantity -= 1;
-//       }
-//     }
-
-//     await cart.save();
-
-//     // Populate cart for response
-//     const populatedCart = await UserCart.findById(cart._id)
-//     // .populate({
-//     //   path: "items.itemId",
-//     //   select: "name MRP image categoryId subCategoryId",
-//     //   populate: [
-//     //     { path: "categoryId", select: "name" },
-//     //     { path: "subCategoryId", select: "name" },
-//     //   ],
-//     // });
-
-//     return res.status(200).json(
-//       apiResponse(200, true, "Item quantity updated successfully", populatedCart)
-//     );
-//   } catch (error) {
-//     console.error("Update cart item quantity error:", {
-//       message: error.message,
-//       stack: error.stack,
-//       body: req.body,
-//     });
-//     return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
-//   }
-// };
 
 
 
