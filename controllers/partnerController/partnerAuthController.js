@@ -98,7 +98,8 @@ exports.partnerSignup = async (req, res) => {
         apiResponse(
           200,
           true,
-          "Partner signup successful. Awaiting admin verification."
+          "Partner signup successful. Awaiting admin verification.",
+          partner
         )
       );
   } catch (error) {
