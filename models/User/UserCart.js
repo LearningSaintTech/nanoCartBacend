@@ -59,3 +59,6 @@ cartSchema.index({
 const UserCart = mongoose.model("UserCart", cartSchema);
 
 module.exports = UserCart;
+
+
+

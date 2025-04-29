@@ -22,7 +22,7 @@ const filterRoutes=require("./routes/filterRoutes/filterRoutes");
 const userRatingAndReviewRoutes=require("./routes/userRatingAndReview/userRatingAndReview");
 const userAddressRoutes=require("./routes/userAdddressRoutes/userAddressRoutes");
 const invoiceRoutes=require("./routes/invoiceRoutes/invoiceRoutes");
-const userOrderRoutes=require("./routes/userOrderRoutes/userOrderRoutes");
+// const userOrderRoutes=require("./routes/userOrderRoutes/userOrderRoutes");
 const userTBYBRoutes=require("./routes/userTBYBRoutes/userTBYBRoutes");
 
 
@@ -63,7 +63,7 @@ app.use("/api/filter",filterRoutes)
 app.use("/api/user/ratingreview",userRatingAndReviewRoutes)
 app.use("/api/user/address",userAddressRoutes)
 app.use("/api/invoice",invoiceRoutes)
-app.use("/api/user/order",userOrderRoutes)
+// app.use("/api/user/order",userOrderRoutes)
 app.use("/api/user/tbyb",userTBYBRoutes)
 
 

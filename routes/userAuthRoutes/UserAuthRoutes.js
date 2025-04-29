@@ -12,6 +12,7 @@ const {
   login,
   getUserProfile,
   updateUserProfile,
+  deleteUserAccount
 } = require("../../controllers/userAuthControllers/UserAuthController");
 
 
@@ -32,6 +33,9 @@ router.get("/profile",verifyToken,isUser,getUserProfile)
 
 //Route for user profile
 router.put("/profile",verifyToken,isUser,updateUserProfile)
+
+//routes for user delete
+router.delete("/",verifyToken,isUser,deleteUserAccount)
 
 // Export the router for use in the main application
 module.exports = router;

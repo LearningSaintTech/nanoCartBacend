@@ -1,6 +1,13 @@
+const mongoose = require("mongoose");
 const User = require("../../models/User/User.js");
 const PhoneOTP = require("../../models/OTP/PhoneOTP.js");
 const Partner = require("../../models/Partner/Partner");
+const UserOrder = require("../../models/User/UserOrder"); 
+const UserAddress = require("../../models/User/UserAddress"); 
+const UserCart = require("../../models/User/UserCart"); 
+const UserRatingReview = require("../../models/User/UserRatingReview");
+const UserTBYB = require("../../models/User/UserTBYB"); 
+const UserWishlist = require("../../models/User/UserWishlist"); 
 const { apiResponse } = require("../../utils/apiResponse");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
@@ -337,5 +344,86 @@ exports.updateUserProfile = async (req, res) => {
     return res
       .status(500)
       .json(apiResponse(500, false, error.message));
+  }
+};
+
+
+exports.deleteUserAccount = async (req, res) => {
+  try {
+    const { userId } = req.user; // Extract userId from authenticated user
+
+    // Validate userId
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Invalid userId"));
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "User not found"));
+    }
+
+    // Check for active orders (not Cancelled or Delivered)
+    const activeOrders = await UserOrder.find({
+      userId,
+      orderStatus: {
+        $nin: ["Cancelled", "Delivered"],
+      },
+    });
+
+    if (activeOrders.length > 0) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Cannot delete account with active orders"
+          )
+        );
+    }
+
+    // Delete UserOrder documents
+    await UserOrder.deleteMany({ userId });
+
+    // Delete UserRatingReview documents
+    await UserRatingReview.deleteMany({ userId });
+
+    // Delete UserAddress documents
+    await UserAddress.deleteMany({ userId });
+
+    // Delete UserCart document (one per user due to unique constraint)
+    await UserCart.deleteOne({ userId });
+
+    // Delete UserTBYB documents
+    await UserTBYB.deleteMany({ userId });
+
+    // Delete UserWishlist documents
+    await UserWishlist.deleteMany({ userId });
+
+    // Delete User document
+    await User.deleteOne({ _id: userId });
+
+    // Alternative: Soft delete User (uncomment if preferred)
+    // await User.updateOne(
+    //   { _id: userId },
+    //   { $set: { isDeleted: true, deletedAt: new Date() } }
+    // );
+
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "User account deleted successfully"));
+  } catch (error) {
+    console.error("Error deleting user account:", {
+      message: error.message,
+      stack: error.stack,
+    });
+    return res
+      .status(500)
+      .json(apiResponse(500, false, "Server error while deleting account"));
   }
 };

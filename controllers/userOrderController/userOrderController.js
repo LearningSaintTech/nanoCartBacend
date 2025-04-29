@@ -3,6 +3,8 @@ const UserOrder = require("../../models/User/UserOrder");
 const ItemDetail = require("../../models/Items/ItemDetail");
 const UserAddress = require("../../models/User/UserAddress");
 const { apiResponse } = require("../../utils/apiResponse");
+const razorpay = require("../../config/razorpay");
+const crypto = require("crypto");
 
 // Utility to populate order fields
 const populateOrder = (query) =>
@@ -33,9 +35,6 @@ exports.createOrder = async (req, res) => {
       shippingAddressId,
       paymentMethod,
       totalAmount,
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
     } = req.body;
 
     // Validate userId
@@ -277,25 +276,28 @@ exports.createOrder = async (req, res) => {
       orderData.isOrderPlaced = true;
       orderData.orderStatus = "Confirmed";
       orderData.paymentStatus = "Pending"; // COD is pending until delivery
-    } else if (paymentMethod === "Online") {
-      // Validate online payment fields
-      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              "All Razorpay details are required for online payment",
-              null
-            )
-          );
+      // Reduce stock immediately after order placement for COD
+      for (const item of orderDetails) {
+        const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
+        const colorEntry = itemDetail.imagesByColor.find(
+          (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
+        );
+        const sizeEntry = colorEntry.sizes.find(
+          (size) => size.size === item.size && size.skuId === item.skuId
+        );
+        sizeEntry.stock -= item.quantity;
+        await itemDetail.save();
       }
-      orderData.razorpayOrderId = razorpayOrderId;
-      orderData.razorpayPaymentId = razorpayPaymentId;
-      orderData.razorpaySignature = razorpaySignature;
-      orderData.paymentStatus = "Paid";
-      orderData.isOrderPlaced = true;
-      orderData.orderStatus = "Confirmed";
+    } else if (paymentMethod === "Online") {
+      const options = {
+        amount: totalAmount * 100, // Convert to paise
+        currency: "INR",
+        receipt: `receipt_${Date.now()}`,
+        payment_capture: 1,
+      };
+      // Create Razorpay Order
+      const order = await razorpay.orders.create(options);
+      orderData.razorpayOrderId = order.id;
     }
 
     // Create new order
@@ -323,6 +325,60 @@ exports.createOrder = async (req, res) => {
       );
   }
 };
+
+// Verify Payment Controller
+exports.verifyPayment = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest("hex");
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ success: false, message: "Invalid signature" });
+    }
+
+    // Update Order Payment Status
+    let userOrder = await UserOrder.findOneAndUpdate(
+      { razorpayOrderId: razorpay_order_id },
+      {
+        $set: {
+          paymentStatus: "Paid",
+          razorpayPaymentId: razorpay_payment_id,
+          razorpaySignature: razorpay_signature,
+        },
+      },
+      { new: true }
+    );
+
+    if (!userOrder) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Reduce stock after payment verification
+    for (const item of userOrder.orderDetails) {
+      const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
+      const colorEntry = itemDetail.imagesByColor.find(
+        (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
+      );
+      const sizeEntry = colorEntry.sizes.find(
+        (size) => size.size === item.size && size.skuId === item.skuId
+      );
+      sizeEntry.stock -= item.quantity;
+      await itemDetail.save();
+    }
+
+    return res.status(200).json({ success: true, message: "Payment verified successfully" });
+  } catch (error) {
+    console.error("Error verifying payment:", error.message);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 
 
 
@@ -510,313 +566,116 @@ exports.fetchOrderByOrderId = async (req, res) => {
 };
 
 
-// // Cancel Orders Controller
-// exports.cancelOrders = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-//     const { orderId, reason, bankDetails, itemsId } = req.body;
 
-//     // Validate userId
-//     if (!mongoose.Types.ObjectId.isValid(userId)) {
-//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
-//     }
+// Cancel Specific Item in Order Controller
+exports.cancelOrder = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { orderId, itemId } = req.body;  // We now accept itemId to cancel a specific item
 
-//     // Validate reason
-//     if (!reason || typeof reason !== "string" || reason.trim() === "") {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "Reason for cancellation is required", null));
-//     }
+    // Validate orderId and itemId
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return apiResponse(res, 400, "Invalid order ID");
+    }
 
-//     // Validate itemsId
-//     let itemsToCancel = null;
-//     if (itemsId) {
-//       if (!Array.isArray(itemsId) || itemsId.length === 0) {
-//         return res
-//           .status(400)
-//           .json(
-//             apiResponse(400, "itemsId must be a non-empty array or null", null)
-//           );
-//       }
-//       for (const itemId of itemsId) {
-//         if (!mongoose.Types.ObjectId.isValid(itemId)) {
-//           return res
-//             .status(400)
-//             .json(apiResponse(400, `Invalid itemId: ${itemId}`, null));
-//         }
-//       }
-//       itemsToCancel = itemsId.map((id) => new mongoose.Types.ObjectId(id));
-//     }
+    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+      return apiResponse(res, 400, "Invalid item ID");
+    }
 
-//     const results = [];
-//     const errors = [];
+    // Find the order by orderId and userId
+    const order = await UserOrder.findOne({ _id: orderId, userId });
 
-//     // Find the order
-//     const order = await UserOrder.findOne({ userId, orderId });
-//     if (!order) {
-//       return res
-//         .status(404)
-//         .json(apiResponse(404, "Order not found for this user", null));
-//     }
+    if (!order) {
+      return apiResponse(res, 404, "Order not found");
+    }
 
-//     // Check if order is in a cancellable state
-//     const cancellableStatuses = [
-//       "Initiated",
-//       "Confirmed",
-//       "Ready for Dispatch",
-//       "Dispatched",
-//     ];
-//     if (!cancellableStatuses.includes(order.orderStatus)) {
-//       return res
-//         .status(400)
-//         .json(
-//           apiResponse(
-//             400,
-//             `Order cannot be cancelled. Current status: ${order.orderStatus}`,
-//             null
-//           )
-//         );
-//     }
+    // Check if order is already cancelled or delivered
+    if (order.isOrderCancelled || order.orderStatus === "Delivered") {
+      return apiResponse(res, 400, "Order already cancelled or delivered");
+    }
 
-//     // Validate bankDetails based on paymentMethod
-//     if (order.paymentMethod === "COD") {
-//       if (!bankDetails || typeof bankDetails !== "object") {
-//         return res
-//           .status(400)
-//           .json(
-//             apiResponse(400, "Bank details are required for COD orders", null)
-//           );
-//       }
-//       const { accountNumber, ifscCode, branchName, accountName } = bankDetails;
-//       if (
-//         !accountNumber ||
-//         typeof accountNumber !== "string" ||
-//         accountNumber.trim() === "" ||
-//         !ifscCode ||
-//         typeof ifscCode !== "string" ||
-//         ifscCode.trim() === "" ||
-//         !branchName ||
-//         typeof branchName !== "string" ||
-//         branchName.trim() === "" ||
-//         !accountName ||
-//         typeof accountName !== "string" ||
-//         accountName.trim() === ""
-//       ) {
-//         return res
-//           .status(400)
-//           .json(
-//             apiResponse(
-//               400,
-//               "All bank details (accountNumber, ifscCode, branchName, accountName) must be non-empty strings for COD orders",
-//               null
-//             )
-//           );
-//       }
-//     } else if (order.paymentMethod === "Online") {
-//       if (bankDetails !== null) {
-//         return res
-//           .status(400)
-//           .json(
-//             apiResponse(
-//               400,
-//               "Bank details must be null for Online payment orders",
-//               null
-//             )
-//           );
-//       }
-//     } else {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "Invalid paymentMethod", null));
-//     }
+    // Find the item within the order that matches the itemId
+    const itemToCancel = order.orderDetails.find(item => item.itemId.toString() === itemId.toString());
 
-//     // Validate itemsId against orderDetails
-//     const itemsToProcess = [];
-//     if (itemsToCancel) {
-//       for (const itemId of itemsToCancel) {
-//         const item = order.orderDetails.find((detail) =>
-//           detail.itemId.equals(itemId)
-//         );
-//         if (!item) {
-//           errors.push({
-//             orderId,
-//             message: `ItemId ${itemId} not found in order`,
-//           });
-//           continue;
-//         }
-//         if (item.isItemCancel) {
-//           errors.push({
-//             orderId,
-//             message: `ItemId ${itemId} is already canceled`,
-//           });
-//           continue;
-//         }
-//         itemsToProcess.push(item);
-//       }
-//     } else {
-//       for (const item of order.orderDetails) {
-//         if (item.isItemCancel) {
-//           errors.push({
-//             orderId,
-//             message: `ItemId ${item.itemId} is already canceled`,
-//           });
-//           continue;
-//         }
-//         itemsToProcess.push(item);
-//       }
-//     }
+    if (!itemToCancel) {
+      return apiResponse(res, 404, "Item not found in the order");
+    }
 
-//     if (itemsToProcess.length === 0) {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "No valid items to cancel", { errors }));
-//     }
+    // Handle cancellation logic based on the payment method
+    if (order.paymentMethod === "COD") {
+      // For COD orders, simply update the status of the item and the order status if needed
+      itemToCancel.isItemCancel = true;
 
-//     // Calculate base amounts
-//     if (typeof order.totalAmount !== "number" || order.totalAmount < 0) {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "Invalid or missing totalAmount", null));
-//     }
-//     const shippingInvoice = order.invoice.find(
-//       (entry) => entry.key.trim().toLowerCase() === "shippingcharge"
-//     );
-//     const shippingCharge =
-//       shippingInvoice &&
-//       shippingInvoice.value !== "0" &&
-//       shippingInvoice.value.toLowerCase() !== "free"
-//         ? parseFloat(shippingInvoice.value || 0)
-//         : 0;
-//     if (isNaN(shippingCharge)) {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "Invalid shipping charge in invoice", null));
-//     }
-//     const gstInvoice = order.invoice.find(
-//       (entry) => entry.key.trim().toLowerCase() === "gst"
-//     );
-//     const gst = gstInvoice ? parseFloat(gstInvoice.value || 0) : 0;
-//     if (isNaN(gst)) {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "Invalid GST in invoice", null));
-//     }
+      // Check if all items are cancelled to update order status to 'Cancelled' or 'Partiallycancelled'
+      const allItemsCancelled = order.orderDetails.every(item => item.isItemCancel);
 
-//     // Update order details and refund
-//     const isAllItems = itemsToProcess.length === order.orderDetails.length;
-//     let totalRefundAmount = 0;
+      if (allItemsCancelled) {
+        order.orderStatus = "Cancelled";
+        order.isOrderCancelled = true;
+      } else {
+        order.orderStatus = "Partiallycancelled";  // If not all items are cancelled, set the status to Partiallycancelled
+      }
 
-//     for (const item of itemsToProcess) {
-//       // Calculate refund amount
-//       let refundAmount;
-//       if (isAllItems) {
-//         refundAmount =
-//           (order.totalAmount - (gst + shippingCharge)) /
-//           order.orderDetails.length;
-//       } else {
-//         refundAmount =
-//           order.totalAmount / order.orderDetails.length -
-//           (gst + shippingCharge);
-//       }
-//       refundAmount = Math.max(0, refundAmount);
+      // Save the updated order with cancelled item
+      await order.save();
 
-//       // Update orderDetails
-//       item.isItemCancel = true;
+      return apiResponse(res, 200, "Item cancelled successfully");
+    }
 
-//       // Add to refund array
-//       const refundEntry = {
-//         itemId: item.itemId,
-//         refundReason: reason.trim(),
-//         requestDate: new Date(),
-//         refundAmount,
-//         refundStatus: "Initiated",
-//         bankDetails:
-//           order.paymentMethod === "COD"
-//             ? {
-//                 accountNumber: bankDetails.accountNumber.trim(),
-//                 ifscCode: bankDetails.ifscCode.trim(),
-//                 branchName: bankDetails.branchName.trim(),
-//                 accountName: bankDetails.accountName.trim(),
-//               }
-//             : null,
-//       };
-//       order.refund.push(refundEntry);
-//       totalRefundAmount += refundAmount;
+    if (order.paymentMethod === "Online" && order.paymentStatus === "Paid") {
+      // For Online orders, perform the refund via Razorpay
 
-//       // Restore stock in ItemDetail
-//       const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
-//       if (!itemDetail) {
-//         errors.push({
-//           orderId,
-//           message: `ItemDetail not found for itemId: ${item.itemId}`,
-//         });
-//         continue;
-//       }
+      // Check if Razorpay Payment ID exists before processing the refund
+      if (!order.razorpayPaymentId) {
+        return apiResponse(res, 400, "Payment not found for the order");
+      }
 
-//       const colorEntry = itemDetail.imagesByColor.find(
-//         (entry) => entry.color === item.color
-//       );
-//       if (!colorEntry) {
-//         errors.push({
-//           orderId,
-//           message: `Color ${item.color} not found for itemId: ${item.itemId}`,
-//         });
-//         continue;
-//       }
+      // Calculate refund amount for the cancelled item(s)
+      const refundAmount = itemToCancel.quantity * itemToCancel.price * 100;  // Refund amount is in paise
 
-//       const sizeEntry = colorEntry.sizes.find(
-//         (size) => size.size === item.size && size.skuId === item.skuId
-//       );
-//       if (!sizeEntry) {
-//         errors.push({
-//           orderId,
-//           message: `Size ${item.size} or skuId ${item.skuId} not found for color ${item.color}`,
-//         });
-//         continue;
-//       }
+      // Create a refund for the cancelled item(s)
+      const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+        amount: refundAmount, // Refund amount for the specific item
+      });
 
-//       sizeEntry.stock += item.quantity;
-//       await itemDetail.save();
-//     }
+      // Check the status of the refund
+      if (refund.status !== "processed") {
+        return apiResponse(res, 500, "Refund processing failed");
+      }
 
-//     // Update order status
-//     if (isAllItems) {
-//       order.isOrderCancelled = true;
-//       order.orderStatus = "Cancelled";
-//     }
+      // Mark the specific item as cancelled
+      itemToCancel.isItemCancel = true;
 
-//     // Save the updated order
-//     await order.save();
+      // Add refund information to the order
+      order.refund.push({
+        itemId: itemToCancel.itemId,
+        refundReason: "Item cancelled",
+        requestDate: new Date(),
+        refundAmount: itemToCancel.quantity * itemToCancel.price,
+        refundTransactionId: refund.payment_id,
+        refundStatus: "initated",
+      });
 
-//     // Populate referenced fields for response
-//     const populatedOrder = await populateOrder(UserOrder.findById(order._id));
+      // Check if all items are cancelled to update order status to 'Cancelled' or 'Partiallycancelled'
+      const allItemsCancelled = order.orderDetails.every(item => item.isItemCancel);
 
-//     results.push({ orderId, order: populatedOrder });
+      if (allItemsCancelled) {
+        order.orderStatus = "Cancelled";
+        order.isOrderCancelled = true;
+      } else {
+        order.orderStatus = "Partiallycancelled";  // If not all items are cancelled, set the status to Partiallycancelled
+      }
 
-//     // Prepare response
-//     if (errors.length > 0 && results.length === 0) {
-//       return res
-//         .status(400)
-//         .json(apiResponse(400, "Order failed to cancel", { errors }));
-//     }
+      // Save the updated order with the specific item cancelled and refund processed
+      await order.save();
 
-//     const response = {
-//       results,
-//       errors: errors.length > 0 ? errors : undefined,
-//     };
+      return apiResponse(res, 200, "Item cancelled and refund processed successfully");
+    }
 
-//     return res
-//       .status(200)
-//       .json(apiResponse(200, "Order cancellation processed", response));
-//   } catch (error) {
-//     console.error("Error cancelling order:", error.message);
-//     return res
-//       .status(400)
-//       .json(
-//         apiResponse(400, error.message || "Error while cancelling order", null)
-//       );
-//   }
-// };
-
-// // Exchange/Return Orders Controller
-// exports.exchangeOrders = async (req, res) => {};
+    // Handle case if payment status is not 'Paid' for Online orders
+    return apiResponse(res, 400, "Unable to cancel the item. Payment not successful.");
+  } catch (err) {
+    console.error("Error cancelling item in order:", err);
+    return apiResponse(res, 500, "Internal server error");
+  }
+};
