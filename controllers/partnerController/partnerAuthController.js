@@ -7,6 +7,8 @@ require("dotenv").config();
 const { apiResponse } = require("../../utils/apiResponse");
 
 exports.partnerSignup = async (req, res) => {
+  let partner = null;
+
   try {
     const {
       name,
@@ -34,20 +36,19 @@ exports.partnerSignup = async (req, res) => {
         .status(400)
         .json(apiResponse(400, false, "All required fields must be provided"));
     }
+
     if (!req.file) {
       return res
         .status(400)
         .json(apiResponse(400, false, "Shop image is required"));
     }
 
-    // Check if user exists and deactivate them
+    // Check if user exists
     const existingUser = await User.findOne({ phoneNumber });
     if (!existingUser) {
       return res
         .status(404)
-        .json(
-          apiResponse(404, false, "User not found. Sign up as a user first.")
-        );
+        .json(apiResponse(404, false, "User not found. Sign up as a user first."));
     }
 
     // Check if partner already exists
@@ -55,22 +56,22 @@ exports.partnerSignup = async (req, res) => {
     if (existingPartner) {
       return res
         .status(403)
-        .json(apiResponse(403, false, "Partner already exists. Please log in"));
+        .json(apiResponse(403, false, "Partner already exists. Please log in."));
     }
 
-    // Create partner (pending admin verification)
-    const partner = await Partner.create({
+    // Create partner
+    partner = await Partner.create({
       name,
       email,
       phoneNumber,
       isPhoneVerified: true,
-      isVerified: false, // Admin must verify
-      isActive: false, // Inactive until verified
+      isVerified: false,
+      isActive: false,
       partner: existingUser._id,
     });
 
     // Create partner profile
-    const partnerProfile = await PartnerProfile.create({
+    await PartnerProfile.create({
       shopName,
       gstNumber,
       shopAddress,
@@ -79,34 +80,44 @@ exports.partnerSignup = async (req, res) => {
       partnerId: partner._id,
     });
 
-    let imageShopUrl;
+    // Upload shop image
     if (req.file) {
-      // Upload shop image to S3
-      imageShopUrl = await uploadImageToS3(
+      const imageShopUrl = await uploadImageToS3(
         req.file,
         `Nanocart/partner/${partner._id}/imageshop`
       );
       partner.imageShop = imageShopUrl;
     }
+
     partner.isProfile = true;
     await partner.save();
-   
 
-    return res
-      .status(200)
-      .json(
-        apiResponse(
-          200,
-          true,
-          "Partner signup successful. Awaiting admin verification.",
-          partner
-        )
-      );
+    return res.status(200).json(
+      apiResponse(
+        200,
+        true,
+        "Partner signup successful. Awaiting admin verification.",
+        partner
+      )
+    );
   } catch (error) {
+    // Delete partner if it was created and any error occurred later
+    if (partner?._id) {
+      await Partner.findByIdAndDelete(partner._id);
+    }
+
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      const duplicateField = Object.keys(error.keyPattern)[0];
+      const message = `${duplicateField.charAt(0).toUpperCase() + duplicateField.slice(1)} already exists.`;
+      return res.status(409).json(apiResponse(409, false, message));
+    }
+
     console.error("Signup Error:", error.message);
-    return res.status(500).json(apiResponse(500, false, error.message));
+    return res.status(500).json(apiResponse(500, false, "Internal server error"));
   }
 };
+
 
 exports.verifyPartner = async (req, res) => {
   try {
