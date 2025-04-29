@@ -13,24 +13,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderDetails: [
       {
-        itemId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Item",
-          required: true,
-        },
-        color: { type: String },
-        size: { type: String },
-        quantity: { type: Number, min: 1, required: true },
-        skuId: { type: String },
-        isItemCancel: {
-          type: Boolean,
-          default: false,
-        },
-
-        isItemExchange: {
-          type: Boolean,
-          default: false,
-        },
+        cartItems: {type: mongoose.Schema.Types.ObjectId},
       },
     ],
     invoice: [
@@ -53,7 +36,7 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["Online", "COD","Wallet"],
+      enum: ["Online", "COD", "Wallet"],
     },
     paymentStatus: {
       type: String,
@@ -67,16 +50,15 @@ const orderSchema = new mongoose.Schema(
     orderStatus: {
       type: String,
       enum: [
-        "Initiated",
+        "In transit",
         "Confirmed",
         "Ready for Dispatch",
         "Dispatched",
         "Delivered",
-        "Cancelled",
-        "Returned",
-        "Partiallycancelled",
+        "Order Returned",
+        "Refund to Wallet",
       ],
-      default: "Initiated",
+      default: "In transit",
     },
     isOrderPlaced: { type: Boolean, default: false },
     isOrderCancelled: {
@@ -87,129 +69,14 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    cancelStatus: [
-      {
-        itemId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Item",
-          required: true,
-        },
-        cancelOrderStatus: {
-          type: String,
-          enum: ["confirmed", "order Cancelled", "Refund Inititated"],
-        },
-      },
-    ],
-
-    refund: [
-      {
-        itemId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Item",
-          required: true,
-        },
-        refundReason: { type: String },
-        requestDate: { type: Date, default: null },
-        refundAmount: {
-          type: Number,
-          min: 0,
-          default: null,
-        },
-        refundTransactionId: { type: String, default: null },
-        refundStatus: {
-          type: String,
-          enum: ["Initiated", "Processing", "Completed"],
-          default: null,
-        },
-      },
-    ],
-
-    returnAndRefund: [
-      {
-        itemId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Item",
-          required: true,
-        },
-        returnReason: {
-          type: String,
-          enum: [
-            "Size too small",
-            "Size too big",
-            "Don't like the fit",
-            "Don't like the quality",
-            "Not same as the catalogue",
-            "Product is damaged",
-            "Wrong product is received",
-            "Product arrived too late",
-          ],
-        },
-        specificReturnReason: {
-          type: String,
-        },
-        requestDate: { type: Date, default: null },
-        pickupLocationId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "UserAddress",
-          default: null,
-        },
-        returnAndRefundTransactionId: { type: String, default: null },
-        bankDetails: {
-          accountNumber: { type: String },
-          ifscCode: { type: String },
-          branchName: { type: String },
-          accountName: { type: String },
-        },
-        refundStatus: {
-          type: String,
-          enum: ["Initiated", "Processing", "Completed"],
-          default: null,
-        },
-      },
-    ],
-
-    exchange: [
-      {
-        itemId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Item",
-          required: true,
-        },
-        requestDate: { type: Date, default: null },
-        exchangeReason: {
-          type: String,
-          enum: [
-            "Size too small",
-            "Size too big",
-            "Don't like the fit",
-            "Don't like the quality",
-            "Not same as the catalogue",
-            "Product is damaged",
-            "Wrong product is received",
-            "Product arrived too late",
-          ],
-        },
-        exchangeSpecificReason: { type: String },
-        color: { type: String },
-        size: { type: String },
-        skuId: { type: String },
-        isSizeAvailability: {
-          type: Boolean,
-        },
-        pickupLocationId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "UserAddress",
-          default: null,
-        },
-        exchangeStatus: {
-          type: String,
-          enum: ["Initiated", "Processing", "Completed"],
-          default: null,
-        },
-      },
-    ],
-
-    deliveryDate: { type: Date },
+    bankDetails: {
+      accountNumber: { type: String },
+      ifscCode: { type: String },
+      branchName: { type: String },
+      accountName: { type: String },
+    },
+    bankDetailsRefundTransctionId:{type:String},
+    deliveryDate: { type: Date, default:Date.now() },
   },
   { timestamps: true }
 );

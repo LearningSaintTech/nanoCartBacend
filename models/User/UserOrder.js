@@ -26,7 +26,10 @@ const orderSchema = new mongoose.Schema(
           type: Boolean,
           default: false,
         },
-
+        isItemReturn:{
+            type:Boolean,
+            default:false
+        },
         isItemExchange: {
           type: Boolean,
           default: false,

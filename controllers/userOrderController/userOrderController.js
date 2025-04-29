@@ -583,7 +583,7 @@ exports.cancelOrder = async (req, res) => {
     }
 
     // Find the order by orderId and userId
-    const order = await UserOrder.findOne({ _id: orderId, userId });
+    const order = await UserOrder.findOne({ orderId:orderId, userId });
 
     if (!order) {
       return apiResponse(res, 404, "Order not found");
@@ -630,6 +630,7 @@ exports.cancelOrder = async (req, res) => {
         return apiResponse(res, 400, "Payment not found for the order");
       }
 
+      //Pending
       // Calculate refund amount for the cancelled item(s)
       const refundAmount = itemToCancel.quantity * itemToCancel.price * 100;  // Refund amount is in paise
 
@@ -677,5 +678,204 @@ exports.cancelOrder = async (req, res) => {
   } catch (err) {
     console.error("Error cancelling item in order:", err);
     return apiResponse(res, 500, "Internal server error");
+  }
+};
+
+
+
+exports.returnAndRefund = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const {
+      orderId,
+      itemId,
+      pickupLocationId,
+      returnReason,
+      specificReturnReason,
+      bankDetails,
+    } = req.body;
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: "Invalid or missing orderId" });
+    }
+    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json({ message: "Invalid or missing itemId" });
+    }
+    if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
+      return res.status(400).json({ message: "Invalid or missing pickupLocationId" });
+    }
+
+    const order = await UserOrder.findOne({ orderId: orderId, userId });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.orderStatus !== "Delivered") {
+      return res.status(400).json({ message: "Only delivered orders can be returned" });
+    }
+
+    const item = order.orderDetails.find(
+      (i) => i.itemId.toString() === itemId.toString()
+    );
+
+    if (!item) {
+      return res.status(404).json({ message: "Item not found in order" });
+    }
+
+    if (item.isItemReturn) {
+      return res.status(400).json({ message: "Item already returned" });
+    }
+
+    // Mark the item as returned
+    item.isItemReturn = true;
+
+    // Calculate refund amount (can be extended for discounts, coupons, etc.)
+    const refundAmount = item.quantity * (item.price || 0); // Adjust as per real pricing logic
+
+    let refundTransactionId = null;
+    let refundStatus = "Initiated";
+
+    // Refund logic based on payment method
+    if (order.paymentMethod === "Online" && order.razorpayPaymentId) {
+      try {
+        const refund = await razorpayInstance.payments.refund(order.razorpayPaymentId, {
+          amount: refundAmount * 100, // Razorpay expects amount in paise
+        });
+
+        refundTransactionId = refund.id;
+        refundStatus = refund.status === "processed" ? "Completed" : "Processing";
+      } catch (err) {
+        return res.status(500).json({ message: "Refund initiation failed via Razorpay", error: err.message });
+      }
+    }
+
+    if (order.paymentMethod === "COD") {
+      if (
+        !bankDetails ||
+        !bankDetails.accountNumber ||
+        !bankDetails.ifscCode ||
+        !bankDetails.accountName ||
+        !bankDetails.branchName
+      ) {
+        return res.status(400).json({ message: "Bank details are required for COD refund" });
+      }
+
+      // Simulate transaction ID generation
+      refundTransactionId = `COD-${Date.now()}`;
+      refundStatus = "Initiated";
+    }
+
+    // Add to returnAndRefund array
+    order.returnAndRefund.push({
+      itemId,
+      returnReason,
+      specificReturnReason,
+      requestDate: new Date(),
+      pickupLocationId,
+      returnAndRefundTransactionId: refundTransactionId,
+      bankDetails: order.paymentMethod === "COD" ? bankDetails : undefined,
+      refundStatus,
+    });
+
+    // Update order status if all items are returned
+    const allReturned = order.orderDetails.every(item => item.isItemReturn);
+    order.orderStatus = allReturned ? "Returned" : "Partiallycancelled";
+
+    await order.save();
+
+    return res.status(200).json({ message: "Return and refund initiated successfully." });
+  } catch (error) {
+    console.error("returnAndRefund error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+const UserOrder = require("../models/UserOrder");
+const ItemDetail = require("../models/ItemDetail");
+
+exports.exchangeItem = async (req, res) => {
+  try {
+    const {
+      itemId,
+      orderId,
+      size,
+      color,
+      pickupLocationId,
+      exchangeReason,
+      exchangeSpecificReason,
+    } = req.body;
+
+    const userId = req.user?._id || req.user?.userId; // Fetch userId from req.user
+
+    // Validate required fields
+    if (
+      !itemId ||
+      !orderId ||
+      !size ||
+      !color ||
+      !pickupLocationId ||
+      !exchangeReason
+    ) {
+      return res.status(400).json({
+        message: "itemId, orderId, size, color, pickupLocationId, and exchangeReason are required.",
+      });
+    }
+
+    // Step 1: Check availability in ItemDetail
+    const itemDetail = await ItemDetail.findOne({ itemId });
+
+    if (!itemDetail) {
+      return res.status(404).json({ message: "Item not found." });
+    }
+
+    // Find color block
+    const colorBlock = itemDetail.imagesByColor.find(
+      (c) => c.color.toLowerCase() === color.toLowerCase()
+    );
+
+    if (!colorBlock) {
+      return res.status(404).json({ message: "Color not available." });
+    }
+
+    // Find size inside that color block
+    const sizeBlock = colorBlock.sizes.find(
+      (s) => s.size.toLowerCase() === size.toLowerCase() && s.stock > 0
+    );
+
+    if (!sizeBlock) {
+      return res.status(404).json({ message: "Size not available or out of stock." });
+    }
+
+    // Step 2: Update the UserOrder
+    const updatedOrder = await UserOrder.findOneAndUpdate(
+      { _id: orderId, userId, "orderDetails.itemId": itemId },
+      {
+        $push: {
+          exchange: {
+            itemId,
+            requestDate: new Date(),
+            exchangeReason, // coming from req.body
+            exchangeSpecificReason, // coming from req.body (optional)
+            color,
+            size,
+            skuId: sizeBlock.skuId,
+            isSizeAvailability: true,
+            pickupLocationId,
+            exchangeStatus: "Initiated",
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({ message: "Order not found for this user or item not found in order." });
+    }
+
+    return res.status(200).json({ message: "Exchange initiated successfully.", order: updatedOrder });
+
+  } catch (error) {
+    console.error("Exchange Item Error:", error);
+    res.status(500).json({ message: "Something went wrong.", error: error.message });
   }
 };
