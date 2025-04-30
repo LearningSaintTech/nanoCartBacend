@@ -13,7 +13,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderDetails: [
       {
-        cartItems: {type: mongoose.Schema.Types.ObjectId},
+        cartItemId: {type: mongoose.Schema.Types.ObjectId},
       },
     ],
     invoice: [
@@ -36,17 +36,27 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["Online", "COD", "Wallet"],
+      enum: ["Online", "COD"],
     },
+    isWalletAmountUsed:{
+      type:Boolean,
+      default:false
+    },
+    walletAmountUsed: { type: Number, default: 0 },
+    
+    razorpayOrderId: { type: String, default: null },
+    razorpayPaymentId: { type: String, default: null },
+    razorpaySignature: { type: String, default: null },
+
+    walletTransactionId: { type: String, default: null },
+    walletRefundTransactionId: { type: String, default: null },
+    walletRefundAmount: { type: Number, default: 0 },
+
     paymentStatus: {
       type: String,
       enum: ["Pending", "Paid", "Failed", "Refunded"],
       default: "Pending",
     },
-    razorpayOrderId: { type: String, default: null },
-    razorpayPaymentId: { type: String, default: null },
-    razorpaySignature: { type: String, default: null },
-
     orderStatus: {
       type: String,
       enum: [
@@ -69,14 +79,19 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    cancellationReason:{
+      type:String
+    },
     bankDetails: {
-      accountNumber: { type: String },
-      ifscCode: { type: String },
-      branchName: { type: String },
+      accountNumber: { type: String,trim: true },
+      ifscCode: { type: String ,trim: true},
+      branchName: { type: String},
       accountName: { type: String },
     },
-    bankDetailsRefundTransctionId:{type:String},
-    deliveryDate: { type: Date, default:Date.now() },
+    bankDetailsRefundTransctionId:{type:String,default:null},
+    
+    deliveredAt: { type: Date, default:Date.now() },
+    returnedAt:{type: Date}
   },
   { timestamps: true }
 );

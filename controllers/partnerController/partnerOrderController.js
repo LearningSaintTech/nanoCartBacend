@@ -1,61 +1,51 @@
 const mongoose = require("mongoose");
-const PartnerOrder = require("../../models/Partner/PartnerOrder"); // Adjust path to PartnerOrder model
-const ItemDetail = require("../../models/Items/ItemDetail");
-const PartnerAddress = require("../../models/Partner/PartnerAddress"); // Adjust path to PartnerAddress model
-const { apiResponse } = require("../../utils/apiResponse");
+const PartnerOrder = require("../models/PartnerOrder");
+const PartnerCart = require("../models/PartnerCart");
+const Wallet = require("../models/Wallet");
+const Razorpay = require("razorpay");
+const crypto = require("crypto");
+const PartnerAddress = require("../models/PartnerAddress");
 
-// Utility to populate order fields
-const populateOrder = (query) =>
-  query
-    .populate("partnerId", "name email") // Changed from userId to partnerId
-    .populate("orderDetails.itemId", "name price")
-    .populate("cancelStatus.itemId", "name price")
-    .populate("refund.itemId", "name price")
-    .populate("returnAndRefund.itemId", "name price")
-    .populate("exchange.itemId", "name price")
-    .populate("shippingAddressId", "address city state country postalCode") // References PartnerAddress
-    .populate(
-      "returnAndRefund.pickupLocationId",
-      "address city state country postalCode"
-    )
-    .populate(
-      "exchange.pickupLocationId",
-      "address city state country postalCode"
-    );
+// Initialize Razorpay instance
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
-// Create Order Controller
-exports.createOrder = async (req, res) => {
+// Create Partner Order Controller
+exports.createPartnerOrder = async (req, res) => {
   try {
-    const { partnerId } = req.user; // Changed from userId to partnerId
     const {
+      walletAmountUsed = 0,
       orderDetails,
       invoice,
       shippingAddressId,
       paymentMethod,
       totalAmount,
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
+      isWalletAmountUsed = false,
     } = req.body;
+    const { partnerId } = req.user;
 
-    // Validate partnerId
-    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Invalid partnerId", null));
+    // Validate required fields
+    if (!orderDetails || !Array.isArray(orderDetails) || orderDetails.length === 0) {
+      return res.status(400).json({ success: false, message: "Order details are required and must be a non-empty array" });
+    }
+    if (!invoice || !Array.isArray(invoice) || invoice.length === 0) {
+      return res.status(400).json({ success: false, message: "Invoice details are required and must be a non-empty array" });
+    }
+    if (!shippingAddressId) {
+      return res.status(400).json({ success: false, message: "Shipping address is required" });
+    }
+    if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
+      return res.status(400).json({ success: false, message: "Valid payment method (Online or COD) is required" });
     }
 
-    // Validate required fields for all orders
-    if (!orderDetails || !Array.isArray(invoice) || invoice.length === 0) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "orderDetails and non-empty invoice array are required",
-            null
-          )
-        );
+    // Validate isWalletAmountUsed and walletAmountUsed consistency
+    if (isWalletAmountUsed && walletAmountUsed <= 0) {
+      return res.status(400).json({ success: false, message: "walletAmountUsed must be positive when isWalletAmountUsed is true" });
+    }
+    if (!isWalletAmountUsed && walletAmountUsed > 0) {
+      return res.status(400).json({ success: false, message: "isWalletAmountUsed must be true when walletAmountUsed is provided" });
     }
 
     // Validate invoice array entries
@@ -65,472 +55,252 @@ exports.createOrder = async (req, res) => {
         typeof entry.key !== "string" ||
         entry.key.trim() === ""
       ) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(400, "Each invoice entry must have a valid key", null)
-          );
+        return res.status(400).json({ success: false, message: "Each invoice entry must have a valid key" });
       }
       if (
         entry.value === undefined ||
         entry.value === null ||
         entry.value.toString().trim() === ""
       ) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(400, "Each invoice entry must have a valid value", null)
-          );
+        return res.status(400).json({ success: false, message: "Each invoice entry must have a valid value" });
       }
     }
 
     // Validate totalAmount
     if (typeof totalAmount !== "number" || totalAmount <= 0) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Valid totalAmount is required and must be positive",
-            null
-          )
-        );
+      return res.status(400).json({ success: false, message: "Valid totalAmount is required and must be positive" });
     }
 
-    // Validate orderDetails array
-    if (!Array.isArray(orderDetails) || orderDetails.length === 0) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "orderDetails array is required and cannot be empty",
-            null
-          )
-        );
+    // Validate orderDetails cartItemIds against PartnerCart
+    const cart = await PartnerCart.findOne({ partnerId }).populate("items.itemId");
+    if (!cart || !cart.items || cart.items.length === 0) {
+      return res.status(404).json({ success: false, message: "No cart found for this partner" });
     }
 
-    // Validate each item in the orderDetails array and check against ItemDetail
     for (const item of orderDetails) {
-      // Validate itemId
-      if (!item.itemId || !mongoose.Types.ObjectId.isValid(item.itemId)) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(400, "Valid itemId is required for all items", null)
-          );
+      if (!item.cartItemId || !mongoose.Types.ObjectId.isValid(item.cartItemId)) {
+        return res.status(400).json({ success: false, message: "Invalid cartItemId in order details" });
       }
 
-      // Validate color, size, skuId, and quantity
-      if (
-        !item.color ||
-        !item.size ||
-        !item.skuId ||
-        !item.quantity ||
-        item.quantity < 1
-      ) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              "Color, size, skuId, and valid quantity are required for all items",
-              null
-            )
-          );
-      }
-
-      // Fetch ItemDetail by itemId
-      const itemDetail = await ItemDetail.findOne({ _id: item.itemId }); // Changed from itemId to _id
-      if (!itemDetail) {
-        return res
-          .status(404)
-          .json(
-            apiResponse(
-              404,
-              `ItemDetail not found for itemId: ${item.itemId}`,
-              null
-            )
-          );
-      }
-
-      // Check if color, size, and skuId match an entry in imagesByColor
-      const colorEntry = itemDetail.imagesByColor.find(
-        (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
+      // Check if cartItemId exists in the partner's cart items
+      const cartItem = cart.items.find(
+        (cartItem) => cartItem._id.toString() === item.cartItemId.toString()
       );
-      if (!colorEntry) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Color ${item.color} not available for itemId: ${item.itemId}`,
-              null
-            )
-          );
+      if (!cartItem) {
+        return res.status(404).json({ success: false, message: `Cart item ${item.cartItemId} not found in partner's cart` });
       }
 
-      const sizeEntry = colorEntry.sizes.find(
-        (size) => size.size === item.size && size.skuId === item.skuId
-      );
-      if (!sizeEntry) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Size ${item.size} or skuId ${item.skuId} not available for color ${item.color} in itemId: ${item.itemId}`,
-              null
-            )
-          );
+      // Additional validation for cart item properties
+      if (!cartItem.itemId || !mongoose.Types.ObjectId.isValid(cartItem.itemId)) {
+        return res.status(400).json({ success: false, message: `Invalid itemId for cart item ${item.cartItemId}` });
       }
-
-      // Check stock availability
-      if (sizeEntry.stock < item.quantity) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Insufficient stock for itemId: ${item.itemId}, size: ${item.size}`,
-              null
-            )
-          );
+      if (cartItem.totalQuantity < 1) {
+        return res.status(400).json({ success: false, message: `Invalid totalQuantity for cart item ${item.cartItemId}` });
       }
-
-      // Reduce stock
-      sizeEntry.stock -= item.quantity;
-      await itemDetail.save();
-    }
-
-    // Validate shippingAddressId if provided
-    if (shippingAddressId) {
-      if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
-        return res
-          .status(400)
-          .json(apiResponse(400, "Invalid shippingAddressId", null));
+      if (cartItem.totalPrice < 1) {
+        return res.status(400).json({ success: false, message: `Invalid totalPrice for cart item ${item.cartItemId}` });
       }
-      // Check if shippingAddressId exists in PartnerAddress
-      const addressExists = await PartnerAddress.findOne({
-        partnerId,
-        _id: shippingAddressId, // Assuming PartnerAddress has _id field
-      });
-      if (!addressExists) {
-        return res
-          .status(404)
-          .json(apiResponse(404, "Shipping address not found", null));
+      if (!cartItem.orderDetails || !Array.isArray(cartItem.orderDetails) || cartItem.orderDetails.length === 0) {
+        return res.status(400).json({ success: false, message: `Order details missing for cart item ${item.cartItemId}` });
+      }
+      for (const detail of cartItem.orderDetails) {
+        if (detail.sizeAndQuantity && Array.isArray(detail.sizeAndQuantity)) {
+          for (const sizeQty of detail.sizeAndQuantity) {
+            if (!sizeQty.skuId || typeof sizeQty.skuId !== "string" || sizeQty.skuId.trim() === "") {
+              return res.status(400).json({ success: false, message: `Invalid skuId for cart item ${item.cartItemId}` });
+            }
+            if (sizeQty.quantity < 1) {
+              return res.status(400).json({ success: false, message: `Invalid quantity for cart item ${item.cartItemId}` });
+            }
+          }
+        }
       }
     }
 
-    // Validate payment method
-    if (!paymentMethod || !["Online", "COD", "Wallet"].includes(paymentMethod)) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Valid payment method (Online, COD, or Wallet) is required",
-            null
-          )
-        );
+    // Validate shipping address
+    const shippingAddress = await PartnerAddress.findOne({
+      _id: shippingAddressId,
+      partnerId,
+    });
+    if (!shippingAddress) {
+      return res.status(404).json({ success: false, message: "Shipping address not found or does not belong to partner" });
     }
 
     // Generate unique orderId
-    const orderId = `ORD-${Date.now()}-${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Initialize order data
+    // Base order object
     const orderData = {
       orderId,
-      partnerId, // Changed from userId to partnerId
-      orderDetails: orderDetails.map((item) => ({
-        itemId: item.itemId,
-        color: item.color,
-        size: item.size,
-        quantity: item.quantity,
-        skuId: item.skuId,
-        isItemCancel: false,
-        isItemExchange: false,
-      })),
-      invoice: invoice.map((entry) => ({
-        key: entry.key.trim().toLowerCase(),
-        value: entry.value.toString().trim(),
-      })),
+      partnerId,
+      orderDetails,
+      invoice,
       shippingAddressId,
       paymentMethod,
-      isOrderPlaced: false,
       totalAmount,
-      orderStatus: "Initiated",
-      paymentStatus: "Pending",
-      razorpayOrderId: null,
-      razorpayPaymentId: null,
-      razorpaySignature: null,
-      cancelStatus: [],
-      refund: [],
-      returnAndRefund: [],
-      exchange: [],
-      isOrderCancelled: false,
-      deliveryDate: null,
+      walletAmountUsed,
+      isOrderPlaced: true,
     };
 
-    // Handle payment method-specific logic
-    if (paymentMethod === "COD") {
-      orderData.isOrderPlaced = true;
-      orderData.orderStatus = "Confirmed";
-      orderData.paymentStatus = "Pending"; // COD is pending until delivery
-    } else if (paymentMethod === "Online") {
-      // Validate online payment fields
-      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              "All Razorpay details are required for online payment",
-              null
-            )
-          );
+    // Handle different payment scenarios
+    if (paymentMethod === "COD" && isWalletAmountUsed) {
+      // Case 1: Wallet + COD
+      orderData.paymentStatus = "Pending";
+      const order = await PartnerOrder.create(orderData);
+
+      // Call deductFunds for wallet amount
+      await deductFunds({
+        body: {
+          partnerId,
+          amount: walletAmountUsed,
+          orderId,
+          description: `Wallet payment for order ${orderId}`,
+        },
+        user: { partnerId },
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Order created successfully with Wallet + COD",
+        order,
+      });
+
+    } else if (paymentMethod === "Online" && isWalletAmountUsed) {
+      // Case 2: Wallet + Online
+      const amountToPayOnline = totalAmount - walletAmountUsed;
+      if (amountToPayOnline <= 0) {
+        return res.status(400).json({ success: false, message: "Online payment amount must be greater than 0" });
       }
-      orderData.razorpayOrderId = razorpayOrderId;
-      orderData.razorpayPaymentId = razorpayPaymentId;
-      orderData.razorpaySignature = razorpaySignature;
-      orderData.paymentStatus = "Paid";
-      orderData.isOrderPlaced = true;
-      orderData.orderStatus = "Confirmed";
-    } else if (paymentMethod === " Waller") {
-      // Assuming Wallet payment is similar to Online but without Razorpay
-      orderData.paymentStatus = "Paid";
-      orderData.isOrderPlaced = true;
-      orderData.orderStatus = "Confirmed";
+
+      // Create Razorpay order
+      const razorpayOrder = await razorpay.orders.create({
+        amount: amountToPayOnline * 100, // Convert to paise
+        currency: "INR",
+        receipt: orderId,
+      });
+
+      orderData.razorpayOrderId = razorpayOrder.id;
+      orderData.paymentStatus = "Pending";
+      const order = await PartnerOrder.create(orderData);
+
+      return res.status(201).json({
+        success: true,
+        message: "Order created successfully with Wallet + Online",
+        order,
+        razorpayOrder: {
+          id: razorpayOrder.id,
+          amount: razorpayOrder.amount,
+          currency: razorpayOrder.currency,
+        },
+      });
+
+    } else if (paymentMethod === "COD") {
+      // Case 3: Only COD
+      if (isWalletAmountUsed) {
+        return res.status(400).json({ success: false, message: "Wallet cannot be used with Only COD payment" });
+      }
+      orderData.paymentStatus = "Pending";
+      const order = await PartnerOrder.create(orderData);
+
+      return res.status(201).json({
+        success: true,
+        message: "Order created successfully with COD",
+        order,
+      });
+
+    } else if (paymentMethod === "Online") {
+      // Case 4: Only Online
+      if (isWalletAmountUsed) {
+        return res.status(400).json({ success: false, message: "Wallet cannot be used with Only Online payment" });
+      }
+      const razorpayOrder = await razorpay.orders.create({
+        amount: totalAmount * 100, // Convert to paise
+        currency: "INR",
+        receipt: orderId,
+      });
+
+      orderData.razorpayOrderId = razorpayOrder.id;
+      orderData.paymentStatus = "Pending";
+      const order = await PartnerOrder.create(orderData);
+
+      return res.status(201).json({
+        success: true,
+        message: "Order created successfully with Online payment",
+        order,
+        razorpayOrder: {
+          id: razorpayOrder.id,
+          amount: razorpayOrder.amount,
+          currency: razorpayOrder.currency,
+        },
+      });
     }
 
-    // Create new order
-    const newOrder = new PartnerOrder(orderData);
-
-    // Save the order
-    const savedOrder = await newOrder.save();
-
-    // Populate referenced fields for response
-    const populatedOrder = await populateOrder(
-      PartnerOrder.findById(savedOrder._id)
-    );
-
-    return res.status(201).json(
-      apiResponse(201, "Order created successfully", {
-        order: populatedOrder,
-      })
-    );
   } catch (error) {
-    console.error("Error creating order:", error.message);
-    return res
-      .status(400)
-      .json(
-        apiResponse(400, error.message || "Error while creating order", null)
-      );
+    console.error("Error creating partner order:", error.message);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Fetch All Partner Orders Controller
-exports.fetchPartnerOrders = async (req, res) => {
+// Verify Online Payment Controller
+exports.verifyPayment = async (req, res) => {
   try {
-    const { partnerId } = req.user; // Changed from userId to partnerId
-    const { page = 1, limit = 10 } = req.query;
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      orderId,
+    } = req.body;
+    const { partnerId } = req.user;
 
-    // Validate partnerId
-    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Invalid partnerId", null));
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !orderId) {
+      return res.status(400).json({ success: false, message: "All payment details are required" });
     }
 
-    // Validate pagination parameters
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    if (pageNum < 1 || limitNum < 1) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(400, "Page and limit must be positive numbers", null)
-        );
+    // Find the order
+    const order = await PartnerOrder.findOne({ orderId, partnerId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    // Fetch orders and populate referenced fields
-    const orders = await populateOrder(
-      PartnerOrder.find({ partnerId }) // Changed from UserOrder to PartnerOrder
-        .sort({ createdAt: -1 })
-        .skip((pageNum - 1) * limitNum)
-        .limit(limitNum)
-    );
+    // Verify Razorpay signature
+    const generatedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest("hex");
 
-    const total = await PartnerOrder.countDocuments({ partnerId });
-
-    // Prepare response data
-    const responseData = {
-      orders,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum),
-      },
-    };
-
-    return res
-      .status(200)
-      .json(
-        apiResponse(200, "Partner orders fetched successfully", responseData)
-      );
-  } catch (error) {
-    console.error("Error fetching partner orders:", error.message);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          error.message || "Server error while fetching partner orders",
-          null
-        )
-      );
-  }
-};
-
-// Fetch Confirmed Partner Orders Controller
-exports.fetchConfirmedPartnerOrders = async (req, res) => {
-  try {
-    // Check if partner info exists
-    if (!req.user || !req.user.partnerId) {
-      return res.status(401).json(apiResponse(401, "Unauthorized", null));
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({ success: false, message: "Invalid payment signature" });
     }
 
-    const { partnerId } = req.user; // Changed from userId to partnerId
-    const { page = 1, limit = 10 } = req.query;
+    // Update order with payment details
+    order.razorpayOrderId = razorpay_order_id;
+    order.razorpayPaymentId = razorpay_payment_id;
+    order.razorpaySignature = razorpay_signature;
+    order.paymentStatus = "Paid";
 
-    // Validate partnerId
-    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Invalid partnerId", null));
+    // If wallet amount was used, deduct funds
+    if (order.walletAmountUsed > 0) {
+      await deductFunds({
+        body: {
+          partnerId,
+          amount: order.walletAmountUsed,
+          orderId,
+          description: `Wallet payment for order ${orderId}`,
+        },
+        user: { partnerId },
+      });
     }
 
-    // Fetch orders with orderStatus: "Confirmed"
-    const orders = await PartnerOrder.find({
-      partnerId,
-      orderStatus: "Confirmed",
-    }) // Changed from UserOrder to PartnerOrder
-      .populate("orderDetails.itemId", "name description")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
+    await order.save();
 
-    const total = await PartnerOrder.countDocuments({
-      partnerId,
-      orderStatus: "Confirmed",
+    return res.status(200).json({
+      success: true,
+      message: "Payment verified successfully",
+      order,
     });
 
-    // Optional: Handle no orders
-    if (orders.length === 0) {
-      return res.status(200).json(
-        apiResponse(200, "No confirmed orders found", {
-          orders: [],
-          pagination: {
-            page: Number(page),
-            limit: Number(limit),
-            total,
-            pages: Math.ceil(total / limit),
-          },
-        })
-      );
-    }
-
-    // Send response
-    return res.status(200).json(
-      apiResponse(200, "Confirmed partner orders fetched successfully", {
-        orders,
-        pagination: {
-          page: Number(page),
-          limit: Number(limit),
-          total,
-          pages: Math.ceil(total / limit),
-        },
-      })
-    );
   } catch (error) {
-    console.error("Error fetching confirmed partner orders:", error);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          "Server error while fetching confirmed partner orders",
-          null
-        )
-      );
-  }
-};
-
-// Fetch Specific Order and All Partner Orders Controller
-exports.fetchOrderByOrderId = async (req, res) => {
-  try {
-    const { partnerId } = req.user; // Changed from userId to partnerId
-    const { orderId } = req.params;
-
-    // Validate partnerId
-    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Invalid partnerId", null));
-    }
-
-    // Validate orderId
-    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid orderId is required", null));
-    }
-
-    // Fetch the specific order by partnerId and orderId
-    const specificOrder = await populateOrder(
-      PartnerOrder.findOne({ partnerId, orderId }) // Changed from UserOrder to PartnerOrder
-    );
-
-    // If specific order not found, return 404
-    if (!specificOrder) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Order not found for this partner", null));
-    }
-
-    // Fetch all orders for the partner
-    const allOrders = await populateOrder(
-      PartnerOrder.find({ partnerId }).sort({ createdAt: -1 })
-    );
-
-    // Prepare response data
-    const responseData = {
-      specificOrder,
-      allOrders,
-    };
-
-    return res
-      .status(200)
-      .json(
-        apiResponse(
-          200,
-          "Order and partner orders fetched successfully",
-          responseData
-        )
-      );
-  } catch (error) {
-    console.error("Error fetching order and partner orders:", error);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          "Server error while fetching order and partner orders",
-          null
-        )
-      );
+    console.error("Error verifying payment:", error.message);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

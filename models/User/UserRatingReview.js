@@ -7,9 +7,9 @@ const UserRatingReviewSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "userId is required"],
     },
-    itemDetailId: {
+    itemId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "ItemDetail",
+      ref: "Item",
       required: [true, "itemDetailId is required"],
     },
     rating: {
@@ -37,7 +37,6 @@ const UserRatingReviewSchema = new mongoose.Schema(
   }
 );
 
-// Ensure one review per user per item
-UserRatingReviewSchema.index({ userId: 1, itemDetailId: 1 }, { unique: true });
+
 
 module.exports = mongoose.model("UserRatingReview", UserRatingReviewSchema);
