@@ -1,21 +1,48 @@
 const Filter = require("../../models/Filter/Filter");
 const {apiResponse} = require("../../utils/apiResponse");
 
-// Create Filter
+// Helper to capitalize first letter
+const capitalizeFirst = (str) => str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+
 exports.createFilter = async (req, res) => {
   try {
-    const { key, values } = req.body;
+    let { key, values } = req.body;
 
+    // Validate input
     if (!key || !values || !Array.isArray(values) || values.length === 0) {
-      return res.status(400).json(apiResponse(400, false, "Key and values are required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Key and values are required"));
     }
 
-    const newFilter = new Filter({ key, values });
+    // Capitalize key and values
+    const formattedKey = capitalizeFirst(key.trim());
+    const formattedValues = values.map((val) => capitalizeFirst(val.trim()));
+
+    // Check if a filter with the same key already exists
+    const existingFilter = await Filter.findOne({ key: formattedKey });
+
+    if (existingFilter) {
+      return res
+        .status(409)
+        .json(apiResponse(409, false, "Filter with this key already exists"));
+    }
+
+    // Save new filter
+    const newFilter = new Filter({
+      key: formattedKey,
+      values: formattedValues,
+    });
+
     const savedFilter = await newFilter.save();
 
-    res.status(201).json(apiResponse(201, true, "Filter created", savedFilter));
+    return res
+      .status(201)
+      .json(apiResponse(201, true, "Filter created", savedFilter));
   } catch (err) {
-    res.status(500).json(apiResponse(500, false, err.message));
+    return res
+      .status(500)
+      .json(apiResponse(500, false, err.message));
   }
 };
 
@@ -45,15 +72,21 @@ exports.getFilterById = async (req, res) => {
 // Update Filter
 exports.updateFilter = async (req, res) => {
   try {
-    const { key, values } = req.body;
+    let {values} = req.body;
+
+    // Capitalize key and values
+    const formattedValues = values.map((val) => capitalizeFirst(val.trim()));
+
     const updated = await Filter.findByIdAndUpdate(
       req.params.id,
-      { key, values },
+      {values: formattedValues },
       { new: true }
     );
+
     if (!updated) {
       return res.status(404).json(apiResponse(404, false, "Filter not found"));
     }
+
     res.status(200).json(apiResponse(200, true, "Filter updated", updated));
   } catch (err) {
     res.status(500).json(apiResponse(500, false, err.message));
