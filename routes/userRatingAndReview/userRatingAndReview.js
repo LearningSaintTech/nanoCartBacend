@@ -30,6 +30,6 @@ router.post(
 router.delete("/:reviewId", verifyToken, isUser, deleteRatingReview);
 
 // Get all reviews and ratings And Customer pic of patricular itemDetailId
-router.get("/:itemDetailId", getRatingsAndReviewsByItemId);
+router.get("/:itemId", getRatingsAndReviewsByItemId);
 
 module.exports = router;
