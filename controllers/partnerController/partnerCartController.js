@@ -6,7 +6,9 @@ const Item = require("../../models/Items/Item");
 const ItemDetail = require("../../models/Items/ItemDetail");
 const { apiResponse } = require("../../utils/apiResponse");
 
-// Add Item to Cart
+
+
+
 exports.addToCart = async (req, res) => {
   try {
     const { partnerId } = req.user;
@@ -46,20 +48,24 @@ exports.addToCart = async (req, res) => {
       }
     }
 
-    // Check partner existence
+    // Validate partner
     if (!await Partner.exists({ _id: partnerId })) {
       return res.status(404).json(apiResponse(404, false, "Partner not found"));
     }
-    // Check item existence
+
+    // Validate item
     const item = await Item.findById(itemId);
     if (!item) {
       return res.status(404).json(apiResponse(404, false, "Item not found"));
     }
-    // Check variant availability for each detail
+
+    // Validate item details
     const detailDoc = await ItemDetail.findOne({ itemId });
     if (!detailDoc) {
-      return res.status(404).json(apiResponse(404, false, "ItemDetail not found"));
+      return res.status(404).json(apiResponse(404, false, "ItemDetail not found for this Item"));
     }
+
+    // Validate colors and variants
     for (const detail of orderDetails) {
       const colorEntry = detailDoc.imagesByColor.find(e => e.color.toLowerCase() === detail.color.toLowerCase());
       if (!colorEntry) {
@@ -73,64 +79,87 @@ exports.addToCart = async (req, res) => {
       }
     }
 
-    // Calculate total
     const unitPrice = item.discountedPrice || 0;
-    let addQty = 0, addPrice = 0;
-    orderDetails.forEach(detail => {
-      detail.sizeAndQuantity.forEach(v => {
-        addQty += v.quantity;
-        addPrice += unitPrice * v.quantity;
-      });
-    });
 
-    // Find or create cart
     let cart = await PartnerCart.findOne({ partnerId });
     if (!cart) {
+      // Create new cart
+      const totalQty = orderDetails.reduce((sum, d) => sum + d.sizeAndQuantity.reduce((s, v) => s + v.quantity, 0), 0);
+      const totalPrice = totalQty * unitPrice;
+
       cart = new PartnerCart({
         partnerId,
         items: [{
           itemId,
           orderDetails,
-          totalQuantity: addQty,
-          totalPrice: addPrice,
+          totalQuantity: totalQty,
+          totalPrice: totalPrice,
           addedAt: Date.now()
         }]
       });
     } else {
-      let row = cart.items.find(i => i.itemId.toString() === itemId);
-      if (!row) {
-        cart.items.push({ itemId, orderDetails, totalQuantity: addQty, totalPrice: addPrice, addedAt: Date.now() });
-      } else {
-        // Merge orderDetails
-        orderDetails.forEach(detail => {
-          let colorRow = row.orderDetails.find(od => od.color.toLowerCase() === detail.color.toLowerCase());
-          if (!colorRow) {
-            row.orderDetails.push(detail);
-          } else {
-            detail.sizeAndQuantity.forEach(v => {
-              let varRow = colorRow.sizeAndQuantity.find(x => x.size === v.size && x.skuId === v.skuId);
-              if (varRow) varRow.quantity += v.quantity;
-              else colorRow.sizeAndQuantity.push(v);
-            });
-          }
+      // Update existing cart
+      let itemEntry = cart.items.find(i => i.itemId.toString() === itemId);
+      if (!itemEntry) {
+        // New item in cart
+        const totalQty = orderDetails.reduce((sum, d) => sum + d.sizeAndQuantity.reduce((s, v) => s + v.quantity, 0), 0);
+        const totalPrice = totalQty * unitPrice;
+        cart.items.push({
+          itemId,
+          orderDetails,
+          totalQuantity: totalQty,
+          totalPrice: totalPrice,
+          addedAt: Date.now()
         });
-        row.totalQuantity += addQty;
-        row.totalPrice += addPrice;
+      } else {
+        // Update existing item
+        for (const newDetail of orderDetails) {
+          let existingDetail = itemEntry.orderDetails.find(d => 
+            d.color.toLowerCase() === newDetail.color.toLowerCase()
+          );
+
+          if (existingDetail) {
+            // Same color exists, check and update sizeAndQuantity
+            for (const newVariant of newDetail.sizeAndQuantity) {
+              let existingVariant = existingDetail.sizeAndQuantity.find(v => 
+                v.size.toLowerCase() === newVariant.size.toLowerCase() && 
+                v.skuId === newVariant.skuId
+              );
+
+              if (existingVariant) {
+                // Size and skuId exist, increase quantity
+                existingVariant.quantity += newVariant.quantity;
+              } else {
+                // New size/sku, add to sizeAndQuantity
+                existingDetail.sizeAndQuantity.push({
+                  size: newVariant.size,
+                  quantity: newVariant.quantity,
+                  skuId: newVariant.skuId
+                });
+              }
+            }
+          } else {
+            // New color, add entire detail
+            itemEntry.orderDetails.push(newDetail);
+          }
+        }
+
+        // Recalculate totals
+        itemEntry.totalQuantity = itemEntry.orderDetails.reduce((sum, d) => 
+          sum + d.sizeAndQuantity.reduce((s, v) => s + v.quantity, 0), 0
+        );
+        itemEntry.totalPrice = itemEntry.totalQuantity * unitPrice;
       }
     }
 
     await cart.save();
-    console.log("Saved cart",cart)
     const result = await PartnerCart.findById(cart._id);
-    return res.status(200).json(apiResponse(200, true, "Item added to cart", result));
+    return res.status(200).json(apiResponse(200, true, "Item added to cart"));
   } catch (error) {
     console.error("Add to cart error:", error);
     return res.status(500).json(apiResponse(500, false, error.message));
   }
 };
-
-
-
 
 // Remove Item Variant from Cart (remove by itemId only)
 exports.removeItemFromCart = async (req, res) => {

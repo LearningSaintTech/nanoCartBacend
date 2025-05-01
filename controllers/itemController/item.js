@@ -384,3 +384,134 @@ exports.getItemsByFilters = async (req, res) => {
   }
 };
  
+
+// 📦 Sort Items Controller
+exports.getSortedItems = async (req, res) => {
+  try {
+    const { sortBy } = req.query;
+
+    let sortOptions = {};
+
+    switch (sortBy) {
+      case "latest":
+        sortOptions = { createdAt: -1 };
+        break;
+      case "popularity":
+        sortOptions = { userAverageRating: -1 };
+        break;
+      case "priceLowToHigh":
+        sortOptions = { MRP: 1 };
+        break;
+      case "priceHighToLow":
+        sortOptions = { MRP: -1 };
+        break;
+      case "offer":
+        sortOptions = { discountPercentage: -1 };
+        break;
+      default:
+        sortOptions = { createdAt: -1 };
+    }
+
+    const items = await Item.find().sort(sortOptions);
+
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "Items fetched successfully", { count: items.length, items }));
+  } catch (error) {
+    console.error("Error in getSortedItems:", error.message);
+    return res
+      .status(500)
+      .json(apiResponse(500, false, "Server error while fetching sorted items", null));
+  }
+};
+
+// 🔍 Search Items Controller
+exports.searchAndFilterItems = async (req, res) => {
+  try {
+    const {
+      q,
+      categoryId,
+      subCategoryId,
+      minPrice,
+      maxPrice,
+      minRating,
+      maxRating,
+      defaultColor,
+      sortBy,
+      filters,
+    } = req.query;
+
+    const query = {};
+
+    // Search by name or description
+    if (q) {
+      query.$or = [
+        { name: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } },
+      ];
+    }
+
+    // Category and subcategory filter
+    if (categoryId) query.categoryId = categoryId;
+    if (subCategoryId) query.subCategoryId = subCategoryId;
+
+    // Price range filter
+    if (minPrice || maxPrice) {
+      query.MRP = {};
+      if (minPrice) query.MRP.$gte = Number(minPrice);
+      if (maxPrice) query.MRP.$lte = Number(maxPrice);
+    }
+
+    // Rating filter
+    if (minRating || maxRating) {
+      query.userAverageRating = {};
+      if (minRating) query.userAverageRating.$gte = Number(minRating);
+      if (maxRating) query.userAverageRating.$lte = Number(maxRating);
+    }
+
+    // Color filter
+    if (defaultColor) {
+      query.defaultColor = defaultColor;
+    }
+
+    // Custom filters: filters should be passed as JSON string: [{ "key": "size", "value": "L" }]
+    if (filters) {
+      const parsedFilters = JSON.parse(filters);
+      query.filters = {
+        $all: parsedFilters.map((f) => ({
+          $elemMatch: { key: f.key, value: f.value },
+        })),
+      };
+    }
+
+    // Sorting options
+    let sortOptions = {};
+    switch (sortBy) {
+      case "latest":
+        sortOptions = { createdAt: -1 };
+        break;
+      case "popularity":
+        sortOptions = { userAverageRating: -1 };
+        break;
+      case "priceLowToHigh":
+        sortOptions = { MRP: 1 };
+        break;
+      case "priceHighToLow":
+        sortOptions = { MRP: -1 };
+        break;
+      case "offer":
+        sortOptions = { discountPercentage: -1 };
+        break;
+      default:
+        sortOptions = { createdAt: -1 };
+    }
+
+    const items = await Item.find(query)
+    // .sort(sortOptions);
+
+    res.status(200).json(apiResponse(200, true, "Items fetched successfully", items));
+  } catch (error) {
+    console.error("Error in searchAndFilterItems:", error.message);
+    res.status(500).json(apiResponse(500, false, "Server error", null));
+  }
+};
