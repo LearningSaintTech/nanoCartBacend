@@ -41,6 +41,10 @@ const partnerSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isWalletCreated:{
+    type:Boolean,
+    default:false
+  },
   isAddress: {
     type: Boolean,
     default: false,

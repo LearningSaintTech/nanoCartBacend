@@ -1,10 +1,12 @@
+require("dotenv").config();
+const jwt = require("jsonwebtoken");
 const Partner = require("../../models/Partner/Partner");
 const PartnerProfile = require("../../models/Partner/PartnerProfile");
 const User = require("../../models/User/User");
+const Wallet=require("../../models/Partner/PartnerWallet")
 const { uploadImageToS3 } = require("../../utils/s3Upload");
-const jwt = require("jsonwebtoken");
-require("dotenv").config();
 const { apiResponse } = require("../../utils/apiResponse");
+
 
 exports.partnerSignup = async (req, res) => {
   let partner = null;
@@ -118,8 +120,8 @@ exports.partnerSignup = async (req, res) => {
   }
 };
 
-
 exports.verifyPartner = async (req, res) => {
+  let wallet = null;
   try {
     const { id } = req.params;
     const partner = await Partner.findById(id);
@@ -138,13 +140,28 @@ exports.verifyPartner = async (req, res) => {
     await partner.save();
 
     const user = await User.findOne({ phoneNumber: partner.phoneNumber });
+    if (!user) {
+      throw new Error("Associated user not found");
+    }
     user.isActive = false;
     user.isPartner = true;
     user.role = "Partner";
     await user.save();
 
+    // Create wallet for the partner
+    wallet = await Wallet.create({
+      partnerId: partner._id,
+      totalBalance: 0,
+      currency: "INR",
+      isActive: true, // Set to true since partner is verified
+    });
+
+    // Update partner to indicate wallet creation
+    partner.isWalletCreated = true;
+    await partner.save();
+
     const payload = {
-      partnerId: partner._id, //actual partner id
+      partnerId: partner._id,
       role: "Partner",
       phoneNumber: partner.phoneNumber,
       email: partner.email,
@@ -159,8 +176,17 @@ exports.verifyPartner = async (req, res) => {
     res.setHeader("Authorization", `Bearer ${token}`);
     return res
       .status(200)
-      .json(apiResponse(200, true, "Partner verified successfully"));
+      .json(apiResponse(200, true, "Partner verified successfully",token));
   } catch (error) {
+    // Delete wallet if it was created
+    if (wallet?._id) {
+      await Wallet.findByIdAndDelete(wallet._id);
+      // Ensure isWalletCreated is not left as true
+      if (partner && partner.isWalletCreated) {
+        partner.isWalletCreated = false;
+        await partner.save();
+      }
+    }
     console.error("Verification Error:", error.message);
     return res.status(500).json(apiResponse(500, false, error.message));
   }
