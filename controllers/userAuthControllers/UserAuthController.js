@@ -15,6 +15,7 @@ require("dotenv").config();
 exports.sendPhoneOtp = async (req, res) => {
   try {
     const { phoneNumber } = req.body;
+    console.log(phoneNumber)
     if (!phoneNumber || !/^\d{10}$/.test(phoneNumber)) {
       return res
         .status(400)
@@ -32,6 +33,7 @@ exports.sendPhoneOtp = async (req, res) => {
       phoneNumberExist.otp = otp;
       await phoneNumberExist.save();
     }
+    console.log(otp)
     return res.status(200).json(apiResponse(200, true, "OTP sent", { otp }));
   } catch (error) {
     console.log("Error in sendOtp:", error.message);

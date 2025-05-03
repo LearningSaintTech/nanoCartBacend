@@ -10,7 +10,7 @@ const {
   getItemBySubCategoryId,
   getItemsByFilters,
   getSortedItems,
-  searchAndFilterItems
+  searchItems
 } = require("../../controllers/itemController/item");
 
 const router = express.Router();
@@ -36,13 +36,13 @@ router.delete("/:itemId", verifyToken, isAdmin,  deleteItem);
 router.get("/", getAllItem);
 
 // Filtered Items
-router.get("/filtersitems", getItemsByFilters);
+router.get("/filter", getItemsByFilters);
 
 // GET /items?sortBy=latest OR popularity OR priceLowToHigh OR priceHighToLow OR offer
-router.get("/sortitems", getSortedItems);
+router.get("/sort", getSortedItems);
 
 //search the item
-router.get("/items/search", searchAndFilterItems);
+router.get("/search", searchItems);
 
 // Get Items by Category ID
 router.get("/category/:categoryId", getItemByCategoryId);

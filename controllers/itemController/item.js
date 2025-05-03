@@ -7,19 +7,28 @@ const {
   deleteFromS3,
   updateFromS3,
 } = require("../../utils/s3Upload");
-
 const mongoose = require("mongoose");
 const { apiResponse } = require("../../utils/apiResponse");
 exports.createItem = async (req, res) => {
   try {
-    const { name, MRP, totalStock, subCategoryId, categoryId, description,defaultColor, discountedPrice, filters} = req.body;
+    const {
+      name,
+      MRP,
+      totalStock,
+      subCategoryId,
+      categoryId,
+      description,
+      defaultColor,
+      discountedPrice,
+      filters
+    } = req.body;
 
-    console.log(req.body);
-    console.log(req.file);
+    // console.log(req.body);
+    // console.log(req.file);
 
     // Validate required fields
     if (!name || !MRP || !totalStock || !subCategoryId || !categoryId || !defaultColor || !req.file) {
-      return res.status(400).json(apiResponse(400, false, "Name, MRP, totalStock, subCategoryId, categoryId, color and image are required"));
+      return res.status(400).json(apiResponse(400, false, "Name, MRP, totalStock, subCategoryId, categoryId, color, and image are required"));
     }
 
     // Validate numeric fields
@@ -29,8 +38,14 @@ exports.createItem = async (req, res) => {
     if (isNaN(Number(totalStock)) || Number(totalStock) < 0) {
       return res.status(400).json(apiResponse(400, false, "totalStock must be a valid positive number"));
     }
-    if (discountedPrice && (isNaN(Number(discountedPrice)) || Number(discountedPrice) < 0)) {
+    if (discountedPrice === undefined || discountedPrice === null) {
+      return res.status(400).json(apiResponse(400, false, "discountedPrice is mandatory"));
+    }
+    if (isNaN(Number(discountedPrice)) || Number(discountedPrice) < 0) {
       return res.status(400).json(apiResponse(400, false, "discountedPrice must be a valid positive number"));
+    }
+    if (Number(discountedPrice) > Number(MRP)) {
+      return res.status(400).json(apiResponse(400, false, "discountedPrice cannot be greater than MRP"));
     }
 
     // Validate Category and SubCategory existence
@@ -53,11 +68,36 @@ exports.createItem = async (req, res) => {
       if (!Array.isArray(parsedFilters)) {
         return res.status(400).json(apiResponse(400, false, "Filters must be an array"));
       }
-      for (const filter of parsedFilters) {
+
+      const capitalize = (str) => str.trim().charAt(0).toUpperCase() + str.trim().slice(1).toLowerCase();
+
+      for (let i = 0; i < parsedFilters.length; i++) {
+        const filter = parsedFilters[i];
+
         if (!filter.key || !filter.value || typeof filter.key !== "string" || typeof filter.value !== "string") {
           return res.status(400).json(apiResponse(400, false, "Each filter must have a non-empty key and value as strings"));
         }
+
+        parsedFilters[i].key = capitalize(filter.key);
+        parsedFilters[i].value = capitalize(filter.value);
       }
+    }
+
+    // Normalize and capitalize name and defaultColor
+    const capitalize = (str) => str.trim().charAt(0).toUpperCase() + str.trim().slice(1).toLowerCase();
+    const capitalName = capitalize(name);
+    const capitalDefaultColor = capitalize(defaultColor);
+
+    // Normalize name for comparison (lowercase, no spaces)
+    const normalizeName = (str) => str.replace(/\s+/g, '').toLowerCase();
+    const normalizedInputName = normalizeName(capitalName);
+
+    // Fetch all items and check for duplicate name
+    const items = await Item.find({}, 'name'); // Only fetch the name field
+    const normalizedDbNames = items.map(item => normalizeName(item.name));
+    
+    if (normalizedDbNames.includes(normalizedInputName)) {
+      return res.status(400).json(apiResponse(400, false, "Item with this name already exists"));
     }
 
     const itemId = new mongoose.Types.ObjectId();
@@ -71,16 +111,16 @@ exports.createItem = async (req, res) => {
     // Create item
     const item = new Item({
       _id: itemId,
-      name,
+      name: capitalName,
       description: description || undefined,
       MRP: Number(MRP),
       totalStock: Number(totalStock),
-      discountedPrice: discountedPrice ? Number(discountedPrice) : undefined,
+      discountedPrice: Number(discountedPrice),
       categoryId,
       subCategoryId,
       filters: parsedFilters,
       image: imageUrl,
-      defaultColor
+      defaultColor: capitalDefaultColor
     });
 
     await item.save();
@@ -90,7 +130,6 @@ exports.createItem = async (req, res) => {
     return res.status(500).json(apiResponse(500, false, error.message));
   }
 };
-
 
 exports.deleteItem = async (req, res) => {
   try {
@@ -132,32 +171,44 @@ exports.deleteItem = async (req, res) => {
   }
 };
 
-
-
 exports.updateItem = async (req, res) => {
   try {
     const { itemId } = req.params;
-    const { name, description, MRP, totalStock, discountedPrice, defaultColor,filters } = req.body;
+    const { name, description, MRP, totalStock, discountedPrice, defaultColor } = req.body;
+    let { filters } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json(apiResponse(400, false, "Invalid Item ID"));
     }
 
-    // Validate numeric fields
-    if (MRP && (isNaN(Number(MRP)) || Number(MRP) < 0)) {
-      return res.status(400).json(apiResponse(400, false, "MRP must be a valid positive number"));
-    }
-    if (totalStock && (isNaN(Number(totalStock)) || Number(totalStock) < 0)) {
-      return res.status(400).json(apiResponse(400, false, "totalStock must be a valid positive number"));
-    }
-    if (discountedPrice && (isNaN(Number(discountedPrice)) || Number(discountedPrice) < 0)) {
-      return res.status(400).json(apiResponse(400, false, "discountedPrice must be a valid positive number"));
-    }
-
-    // Find item
     const item = await Item.findById(itemId);
     if (!item) {
       return res.status(404).json(apiResponse(404, false, "Item not found"));
+    }
+
+    const newMRP = MRP !== undefined ? Number(MRP) : item.MRP;
+    const newDiscountedPrice = discountedPrice !== undefined ? Number(discountedPrice) : item.discountedPrice;
+
+    // Validate numeric fields
+    if (MRP !== undefined && (isNaN(newMRP) || newMRP < 0)) {
+      return res.status(400).json(apiResponse(400, false, "MRP must be a valid positive number"));
+    }
+    if (totalStock !== undefined && (isNaN(Number(totalStock)) || Number(totalStock) < 0)) {
+      return res.status(400).json(apiResponse(400, false, "totalStock must be a valid positive number"));
+    }
+    if (discountedPrice !== undefined && (isNaN(newDiscountedPrice) || newDiscountedPrice < 0)) {
+      return res.status(400).json(apiResponse(400, false, "discountedPrice must be a valid positive number"));
+    }
+
+    // Custom validation block
+    if (MRP !== undefined && discountedPrice === undefined) {
+      return res.status(400).json(apiResponse(400, false, "discountedPrice is mandatory when MRP is provided"));
+    }
+    if (MRP !== undefined && discountedPrice !== undefined && newDiscountedPrice > newMRP) {
+      return res.status(400).json(apiResponse(400, false, "discountedPrice cannot be greater than MRP"));
+    }
+    if (MRP === undefined && discountedPrice !== undefined && newDiscountedPrice > item.MRP) {
+      return res.status(400).json(apiResponse(400, false, "discountedPrice cannot be greater than existing MRP"));
     }
 
     // Update image if provided
@@ -170,26 +221,37 @@ exports.updateItem = async (req, res) => {
       item.image = newImageUrl;
     }
 
-    // Update fields
-    if (name) item.name = name;
+    const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+    if (name) item.name = capitalize(name.trim());
     if (description) item.description = description;
-    if (MRP) item.MRP = Number(MRP);
-    if (totalStock) item.totalStock = Number(totalStock);
-    if (discountedPrice) item.discountedPrice = Number(discountedPrice);
-    if (defaultColor) item.defaultColor = defaultColor;
+    if (MRP !== undefined) item.MRP = newMRP;
+    if (totalStock !== undefined) item.totalStock = Number(totalStock);
+    if (discountedPrice !== undefined) item.discountedPrice = newDiscountedPrice;
+    if (defaultColor) item.defaultColor =  capitalize(defaultColor.trim());
 
-    // Update filters if provided
+    // Parse filters if needed
+    if (typeof filters === 'string') {
+      try {
+        filters = JSON.parse(filters);
+      } catch {
+        return res.status(400).json(apiResponse(400, false, "Invalid JSON format for filters"));
+      }
+    }
+
     if (Array.isArray(filters) && filters.length > 0) {
-      for (const filter of filters) {
+      for (let i = 0; i < filters.length; i++) {
+        const filter = filters[i];
         if (!filter.key || !filter.value || typeof filter.key !== "string" || typeof filter.value !== "string") {
           return res.status(400).json(apiResponse(400, false, "Each filter must have a non-empty key and value as strings"));
         }
+
+        filters[i].key = capitalize(filter.key.trim());
+        filters[i].value = capitalize(filter.value.trim());
       }
       item.filters = filters;
     }
 
     await item.save();
-
     return res.status(200).json(apiResponse(200, true, "Item updated successfully", item));
   } catch (error) {
     console.error("Error updating item:", error.message);
@@ -384,134 +446,275 @@ exports.getItemsByFilters = async (req, res) => {
   }
 };
  
-
-// 📦 Sort Items Controller
 exports.getSortedItems = async (req, res) => {
   try {
-    const { sortBy } = req.query;
+    const { sortBy, page = 1, limit = 10 } = req.query;
 
+    // Validate sortBy
+    const validSortOptions = ['latest', 'popularity', 'priceLowToHigh', 'priceHighToLow', 'offer'];
+    if (sortBy && !validSortOptions.includes(sortBy)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid sortBy parameter', null));
+    }
+
+    // Define sort options
     let sortOptions = {};
-
     switch (sortBy) {
-      case "latest":
+      case 'latest':
         sortOptions = { createdAt: -1 };
         break;
-      case "popularity":
+      case 'popularity':
         sortOptions = { userAverageRating: -1 };
         break;
-      case "priceLowToHigh":
+      case 'priceLowToHigh':
         sortOptions = { MRP: 1 };
         break;
-      case "priceHighToLow":
+      case 'priceHighToLow':
         sortOptions = { MRP: -1 };
         break;
-      case "offer":
+      case 'offer':
         sortOptions = { discountPercentage: -1 };
         break;
       default:
         sortOptions = { createdAt: -1 };
     }
 
-    const items = await Item.find().sort(sortOptions);
+    // Fetch items with pagination and lean
+    const items = await Item.find()
+      .sort(sortOptions)
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .select('name MRP discountedPrice discountPercentage image userAverageRating')
+      .lean();
 
-    return res
-      .status(200)
-      .json(apiResponse(200, true, "Items fetched successfully", { count: items.length, items }));
+    return res.status(200).json(
+      apiResponse(200, true, 'Items fetched successfully', {
+        count: items.length,
+        page: Number(page),
+        limit: Number(limit),
+        items,
+      })
+    );
   } catch (error) {
-    console.error("Error in getSortedItems:", error.message);
-    return res
-      .status(500)
-      .json(apiResponse(500, false, "Server error while fetching sorted items", null));
+    console.error('Error in getSortedItems:', error.message);
+    const message = error.name === 'MongoNetworkError'
+      ? 'Database connection error'
+      : 'Server error while fetching sorted items';
+    return res.status(500).json(apiResponse(500, false, message, null));
   }
 };
 
-// 🔍 Search Items Controller
-exports.searchAndFilterItems = async (req, res) => {
+
+// // Utility to build regex for fuzzy search
+// const buildFuzzyRegex = (input) => {
+//   const sanitized = input.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // Escape special chars
+//   return new RegExp(sanitized.split("").join(".*"), "i");
+// };
+// exports.searchItems = async (req, res) => {
+//   try {
+//     const {
+//       keyword,
+//       category,
+//       subCategory,
+//       minPrice,
+//       maxPrice,
+//       color,
+//       size,
+//       fabric,
+//       occasion,
+//       pattern,
+//       type,
+//       border,
+//       rating,
+//       page = 1,
+//       limit = 10,
+//     } = req.query;
+
+//     const query = {};
+
+//     // Input validation
+//     if (minPrice && isNaN(minPrice)) {
+//       return res.status(400).json(apiResponse(400, false, "Invalid minPrice parameter", null));
+//     }
+//     if (maxPrice && isNaN(maxPrice)) {
+//       return res.status(400).json(apiResponse(400, false, "Invalid maxPrice parameter", null));
+//     }
+//     if (rating && (isNaN(rating) || rating < 0 || rating > 5)) {
+//       return res.status(400).json(apiResponse(400, false, "Invalid rating parameter (must be between 0 and 5)", null));
+//     }
+
+//     // Keyword Search
+//     if (keyword && keyword.trim()) {
+//       const regex = buildFuzzyRegex(keyword.trim());
+//       query.$or = [
+//         { name: { $regex: regex } },
+//         { description: { $regex: regex } }, // Re-enabled description search
+//         { "filters.value": { $regex: regex } },
+//       ];
+//     }
+
+//     // Category/Subcategory
+//     if (category && mongoose.Types.ObjectId.isValid(category)) {
+//       query.categoryId = category;
+//     }
+//     if (subCategory && mongoose.Types.ObjectId.isValid(subCategory)) {
+//       query.subCategoryId = subCategory;
+//     }
+
+//     // Price Range
+//     if (minPrice || maxPrice) {
+//       query.discountedPrice = {};
+//       if (minPrice) query.discountedPrice.$gte = Number(minPrice);
+//       if (maxPrice) query.discountedPrice.$lte = Number(maxPrice);
+//     }
+
+//     // Filters
+//     const filterConditions = [];
+//     if (color) filterConditions.push({ $elemMatch: { key: "Color", value: new RegExp(color, "i") } });
+//     if (size) filterConditions.push({ $elemMatch: { key: "Size", value: new RegExp(size, "i") } });
+//     if (fabric) filterConditions.push({ $elemMatch: { key: "Fabric", value: new RegExp(fabric, "i") } });
+//     if (occasion) filterConditions.push({ $elemMatch: { key: "Occasion", value: new RegExp(occasion, "i") } });
+//     if (pattern) filterConditions.push({ $elemMatch: { key: "Pattern", value: new RegExp(pattern, "i") } });
+//     if (type) filterConditions.push({ $elemMatch: { key: "Type", value: new RegExp(type, "i") } });
+//     if (border) filterConditions.push({ $elemMatch: { key: "Border", value: new RegExp(border, "i") } });
+
+//     if (filterConditions.length > 0) {
+//       query.filters = { $and: filterConditions };
+//     }
+
+//     // Rating
+//     if (rating) {
+//       query.userAverageRating = { $gte: Number(rating) };
+//     }
+
+//     // Execute query with pagination
+//     const items = await Item.find(query)
+//       .skip((page - 1) * limit)
+//       .limit(Number(limit))
+//       .select("name MRP discountedPrice discountPercentage image userAverageRating filters")
+//       .lean();
+
+//     return res.status(200).json(
+//       apiResponse(200, true, "Items fetched successfully", {
+//         count: items.length,
+//         page: Number(page),
+//         limit: Number(limit),
+//         items,
+//       })
+//     );
+//   } catch (error) {
+//     console.error("Search error:", error.message);
+//     const message = error.name === "MongoNetworkError"
+//       ? "Database connection error"
+//       : "Server error during item search";
+//     return res.status(500).json(apiResponse(500, false, message, null));
+//   }
+// };
+
+
+
+// Utility to build regex for stricter keyword search
+const buildSearchRegex = (input) => {
+  const sanitized = input.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // Escape special chars
+  return new RegExp(`\\b${sanitized}\\b`, "i"); // Match whole word, case-insensitive
+};
+
+exports.searchItems = async (req, res) => {
   try {
     const {
-      q,
-      categoryId,
-      subCategoryId,
+      keyword,
+      category,
+      subCategory,
       minPrice,
       maxPrice,
-      minRating,
-      maxRating,
-      defaultColor,
-      sortBy,
-      filters,
+      color,
+      size,
+      fabric,
+      occasion,
+      pattern,
+      type,
+      border,
+      rating,
+      page = 1,
+      limit = 10,
     } = req.query;
 
     const query = {};
 
-    // Search by name or description
-    if (q) {
+    // Input validation
+    if (minPrice && isNaN(minPrice)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid minPrice parameter", null));
+    }
+    if (maxPrice && isNaN(maxPrice)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid maxPrice parameter", null));
+    }
+    if (rating && (isNaN(rating) || rating < 0 || rating > 5)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid rating parameter (must be between 0 and 5)", null));
+    }
+
+    // Keyword Search
+    if (keyword && keyword.trim()) {
+      const regex = buildSearchRegex(keyword.trim());
       query.$or = [
-        { name: { $regex: q, $options: "i" } },
-        { description: { $regex: q, $options: "i" } },
+        { name: { $regex: regex } },
+        { description: { $regex: regex } },
+        { "filters.value": { $regex: regex } },
       ];
     }
 
-    // Category and subcategory filter
-    if (categoryId) query.categoryId = categoryId;
-    if (subCategoryId) query.subCategoryId = subCategoryId;
+    // Category/Subcategory
+    if (category && mongoose.Types.ObjectId.isValid(category)) {
+      query.categoryId = category;
+    }
+    if (subCategory && mongoose.Types.ObjectId.isValid(subCategory)) {
+      query.subCategoryId = subCategory;
+    }
 
-    // Price range filter
+    // Price Range
     if (minPrice || maxPrice) {
-      query.MRP = {};
-      if (minPrice) query.MRP.$gte = Number(minPrice);
-      if (maxPrice) query.MRP.$lte = Number(maxPrice);
+      query.discountedPrice = {};
+      if (minPrice) query.discountedPrice.$gte = Number(minPrice);
+      if (maxPrice) query.discountedPrice.$lte = Number(maxPrice);
     }
 
-    // Rating filter
-    if (minRating || maxRating) {
-      query.userAverageRating = {};
-      if (minRating) query.userAverageRating.$gte = Number(minRating);
-      if (maxRating) query.userAverageRating.$lte = Number(maxRating);
+    // Filters
+    const filterConditions = [];
+    if (color) filterConditions.push({ $elemMatch: { key: "Color", value: new RegExp(`\\b${color}\\b`, "i") } });
+    if (size) filterConditions.push({ $elemMatch: { key: "Size", value: new RegExp(`\\b${size}\\b`, "i") } });
+    if (fabric) filterConditions.push({ $elemMatch: { key: "Fabric", value: new RegExp(`\\b${fabric}\\b`, "i") } });
+    if (occasion) filterConditions.push({ $elemMatch: { key: "Occasion", value: new RegExp(`\\b${occasion}\\b`, "i") } });
+    if (pattern) filterConditions.push({ $elemMatch: { key: "Pattern", value: new RegExp(`\\b${pattern}\\b`, "i") } });
+    if (type) filterConditions.push({ $elemMatch: { key: "Type", value: new RegExp(`\\b${type}\\b`, "i") } });
+    if (border) filterConditions.push({ $elemMatch: { key: "Border", value: new RegExp(`\\b${border}\\b`, "i") } });
+
+    if (filterConditions.length > 0) {
+      query.filters = { $and: filterConditions };
     }
 
-    // Color filter
-    if (defaultColor) {
-      query.defaultColor = defaultColor;
+    // Rating
+    if (rating) {
+      query.userAverageRating = { $gte: Number(rating) };
     }
 
-    // Custom filters: filters should be passed as JSON string: [{ "key": "size", "value": "L" }]
-    if (filters) {
-      const parsedFilters = JSON.parse(filters);
-      query.filters = {
-        $all: parsedFilters.map((f) => ({
-          $elemMatch: { key: f.key, value: f.value },
-        })),
-      };
-    }
-
-    // Sorting options
-    let sortOptions = {};
-    switch (sortBy) {
-      case "latest":
-        sortOptions = { createdAt: -1 };
-        break;
-      case "popularity":
-        sortOptions = { userAverageRating: -1 };
-        break;
-      case "priceLowToHigh":
-        sortOptions = { MRP: 1 };
-        break;
-      case "priceHighToLow":
-        sortOptions = { MRP: -1 };
-        break;
-      case "offer":
-        sortOptions = { discountPercentage: -1 };
-        break;
-      default:
-        sortOptions = { createdAt: -1 };
-    }
-
+    // Execute query with pagination
     const items = await Item.find(query)
-    // .sort(sortOptions);
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .select("name MRP discountedPrice discountPercentage image userAverageRating filters")
+      .lean();
 
-    res.status(200).json(apiResponse(200, true, "Items fetched successfully", items));
+    return res.status(200).json(
+      apiResponse(200, true, "Items fetched successfully", {
+        count: items.length,
+        page: Number(page),
+        limit: Number(limit),
+        items,
+      })
+    );
   } catch (error) {
-    console.error("Error in searchAndFilterItems:", error.message);
-    res.status(500).json(apiResponse(500, false, "Server error", null));
+    console.error("Search error:", error.message);
+    const message = error.name === "MongoNetworkError"
+      ? "Database connection error"
+      : "Server error during item search";
+    return res.status(500).json(apiResponse(500, false, message, null));
   }
 };
