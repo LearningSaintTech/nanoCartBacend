@@ -202,7 +202,7 @@ exports.login = async (req, res) => {
       res.setHeader("Authorization", `Bearer ${token}`);
       return res
         .status(200)
-        .json(apiResponse(200, true, "User logged in successfully", { token }));
+        .json(apiResponse(200, true, "Admin logged in successfully", { token,role:user.role }));
     }
 
     // Partner Flow:
@@ -242,7 +242,7 @@ exports.login = async (req, res) => {
       return res
         .status(200)
         .json(
-          apiResponse(200, true, "Partner logged in successfully", { token })
+          apiResponse(200, true, "Partner logged in successfully", { token,role:user.role })
         );
     }
 
@@ -271,7 +271,7 @@ exports.login = async (req, res) => {
       await PhoneOTP.findOneAndDelete({ phoneNumber });
       return res
         .status(200)
-        .json(apiResponse(200, true, "User logged in successfully", { token }));
+        .json(apiResponse(200, true, "User logged in successfully", { token ,role:user.role }));
     }
   } catch (error) {
     console.log("Login Error:", error.message);
