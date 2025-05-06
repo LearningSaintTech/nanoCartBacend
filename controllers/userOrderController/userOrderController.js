@@ -1,32 +1,2956 @@
+// // const mongoose = require("mongoose");
+// // const UserOrder = require("../../models/User/UserOrder");
+// // const UserCart = require("../../models/User/UserCart");
+// // const UserAddress = require("../../models/User/UserAddress");
+// // const Item = require("../../models/Items/Item");
+// // const ItemDetail = require("../../models/Items/ItemDetail");
+// // const { apiResponse } = require("../../utils/apiResponse");
+// // const razorpay = require("../../config/razorpay");
+// // const crypto = require("crypto");
+
+// // // Create Order Controller
+// // exports.createUserOrder = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+// //     const {
+// //       orderDetails,
+// //       invoice,
+// //       shippingAddressId,
+// //       paymentMethod,
+// //       totalAmount,
+// //     } = req.body;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Validate required fields
+// //     if (
+// //       !orderDetails ||
+// //       !Array.isArray(orderDetails) ||
+// //       orderDetails.length === 0
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "orderDetails array is required and cannot be empty",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     if (!Array.isArray(invoice) || invoice.length === 0) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Non-empty invoice array is required", null));
+// //     }
+
+// //     // Validate invoice entries
+// //     for (const entry of invoice) {
+// //       if (
+// //         !entry.key ||
+// //         typeof entry.key !== "string" ||
+// //         entry.key.trim() === ""
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(
+// //             apiResponse(400, "Each invoice entry must have a valid key", null)
+// //           );
+// //       }
+// //       if (
+// //         entry.value === undefined ||
+// //         entry.value === null ||
+// //         entry.value.toString().trim() === ""
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(
+// //             apiResponse(400, "Each invoice entry must have a valid value", null)
+// //           );
+// //       }
+// //     }
+
+// //     // Validate totalAmount
+// //     if (typeof totalAmount !== "number" || totalAmount <= 0) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Valid totalAmount is required and must be positive",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Validate payment method
+// //     if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Valid payment method (Online or COD) is required",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Validate shippingAddressId if provided
+// //     if (shippingAddressId) {
+// //       if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "Invalid shippingAddressId", null));
+// //       }
+// //       const addressExists = await UserAddress.findOne({
+// //         userId,
+// //         "addressDetail._id": shippingAddressId,
+// //       });
+// //       if (!addressExists) {
+// //         return res
+// //           .status(404)
+// //           .json(apiResponse(404, "Shipping address not found", null));
+// //       }
+// //     }
+
+// //     // Validate orderDetails against UserCart
+// //     const userCart = await UserCart.findOne({ userId });
+// //     if (!userCart) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "User cart not found", null));
+// //     }
+
+// //     for (const orderItem of orderDetails) {
+// //       if (
+// //         !orderItem.itemId ||
+// //         !mongoose.Types.ObjectId.isValid(orderItem.itemId)
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "Valid itemId is required", null));
+// //       }
+// //       if (
+// //         !orderItem.quantity ||
+// //         typeof orderItem.quantity !== "number" ||
+// //         orderItem.quantity < 1
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(
+// //             apiResponse(400, "Valid quantity (minimum 1) is required", null)
+// //           );
+// //       }
+// //       if (
+// //         !orderItem.size ||
+// //         typeof orderItem.size !== "string" ||
+// //         orderItem.size.trim() === ""
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "Valid size is required", null));
+// //       }
+// //       if (
+// //         !orderItem.color ||
+// //         typeof orderItem.color !== "string" ||
+// //         orderItem.color.trim() === ""
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "Valid color is required", null));
+// //       }
+// //       if (
+// //         !orderItem.skuId ||
+// //         typeof orderItem.skuId !== "string" ||
+// //         orderItem.skuId.trim() === ""
+// //       ) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "Valid skuId is required", null));
+// //       }
+
+// //       // Check if item exists in UserCart
+// //       const cartItem = userCart.items.find(
+// //         (item) =>
+
+// //           item.itemId.toString() === orderItem.itemId.toString() &&
+// //           item.size === orderItem.size &&
+// //           item.color === orderItem.color &&
+// //           item.skuId === orderItem.skuId
+// //       );
+// //       if (!cartItem) {
+// //         return res
+// //           .status(404)
+// //           .json(
+// //             apiResponse(
+// //               404,
+// //               `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`,
+// //               null
+// //             )
+// //           );
+// //       }
+// //     }
+
+// //     // Generate unique orderId
+// //     const orderId = `ORD-${Date.now()}-${Math.random()
+// //       .toString(36)
+// //       .substr(2, 9)}`;
+
+// //     // Initialize order data
+// //     const orderData = {
+// //       orderId,
+// //       userId,
+// //       orderDetails: orderDetails.map((item) => ({
+// //         itemId: item.itemId,
+// //         quantity: item.quantity,
+// //         size: item.size,
+// //         color: item.color,
+// //         skuId: item.skuId,
+// //         addedAt: new Date(),
+// //         isReturn: false,
+// //         isExchange: false,
+// //       })),
+// //       invoice: invoice.map((entry) => ({
+// //         key: entry.key.trim().toLowerCase(),
+// //         value: entry.value.toString().trim(),
+// //       })),
+// //       shippingAddressId,
+// //       paymentMethod,
+// //       isOrderPlaced: false,
+// //       totalAmount,
+// //       orderStatus: "Initiated",
+// //       paymentStatus: "Pending",
+// //       razorpayOrderId: null,
+// //       razorpayPaymentId: null,
+// //       razorpaySignature: null,
+// //       isOrderCancelled: false,
+// //       deliveryDate: null,
+// //     };
+
+// //     // Handle payment method-specific logic
+// //     if (paymentMethod === "COD") {
+// //       orderData.isOrderPlaced = true;
+// //       orderData.orderStatus = "Confirmed";
+// //       orderData.paymentStatus = "Pending";
+// //     } else if (paymentMethod === "Online") {
+// //       const options = {
+// //         amount: totalAmount * 100, // Convert to paise
+// //         currency: "INR",
+// //         receipt: `receipt_${Date.now()}`,
+// //         payment_capture: 1,
+// //       };
+// //       const order = await razorpay.orders.create(options);
+// //       orderData.razorpayOrderId = order.id;
+// //     }
+
+// //     // Create and save new order
+// //     const newOrder = new UserOrder(orderData);
+// //     const savedOrder = await newOrder.save();
+
+// //     // Remove cart items that were ordered
+// //     userCart.items = userCart.items.filter(
+// //       (cartItem) =>
+// //         !orderDetails.some(
+// //           (orderItem) =>
+// //             orderItem.itemId.toString() === cartItem.itemId.toString() &&
+// //             orderItem.size === cartItem.size &&
+// //             orderItem.color === cartItem.color &&
+// //             orderItem.skuId === cartItem.skuId
+// //         )
+// //     );
+// //     await userCart.save();
+
+// //     return res
+// //       .status(201)
+// //       .json(apiResponse(201, "Order created successfully", savedOrder));
+// //   } catch (error) {
+// //     console.error("Error creating order:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(500, error.message || "Error while creating order", null)
+// //       );
+// //   }
+// // };
+
+// // // Verify Payment Controller
+// // exports.verifyPayment = async (req, res) => {
+// //   try {
+// //     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+// //       req.body;
+
+// //     // Validate required fields
+// //     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Missing required payment details", null));
+// //     }
+
+// //     // Verify Razorpay signature
+// //     const body = razorpay_order_id + "|" + razorpay_payment_id;
+// //     const expectedSignature = crypto
+// //       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+// //       .update(body)
+// //       .digest("hex");
+
+// //     if (expectedSignature !== razorpay_signature) {
+// //       return res.status(400).json(apiResponse(400, "Invalid signature", null));
+// //     }
+
+// //     // Update order with payment details
+// //     const userOrder = await UserOrder.findOneAndUpdate(
+// //       { razorpayOrderId: razorpay_order_id },
+// //       {
+// //         $set: {
+// //           paymentStatus: "Paid",
+// //           razorpayPaymentId: razorpay_payment_id,
+// //           razorpaySignature: razorpay_signature,
+// //           isOrderPlaced: true,
+// //           orderStatus: "Confirmed",
+// //         },
+// //       },
+// //       { new: true }
+// //     );
+
+// //     if (!userOrder) {
+// //       return res.status(404).json(apiResponse(404, "Order not found", null));
+// //     }
+
+// //     return res
+// //       .status(200)
+// //       .json(apiResponse(200, "Payment verified successfully", userOrder));
+// //   } catch (error) {
+// //     console.error("Error verifying payment:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(apiResponse(500, error.message || "Error verifying payment", null));
+// //   }
+// // };
+
+// // // Fetch All User Orders Controller
+// // exports.fetchUserOrders = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Fetch orders
+// //     let orders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+
+// //     if (!orders || orders.length === 0) {
+// //       return res
+// //         .status(200)
+// //         .json(apiResponse(200, "No user orders found", []));
+// //     }
+
+// //     // Enrich orders with shippingAddressId details
+// //     const enrichedOrders = await Promise.all(
+// //       orders.map(async (order) => {
+// //         let shippingAddress = null;
+// //         // Fetch shippingAddressId details from UserAddress
+// //         if (
+// //           order.shippingAddressId &&
+// //           mongoose.Types.ObjectId.isValid(order.shippingAddressId)
+// //         ) {
+// //           try {
+// //             const userAddress = await UserAddress.findOne({
+// //               userId: order.userId,
+// //               "addressDetail._id": order.shippingAddressId,
+// //             });
+// //             if (userAddress) {
+// //               const matchedAddress = userAddress.addressDetail.find(
+// //                 (addr) =>
+// //                   addr._id.toString() === order.shippingAddressId.toString()
+// //               );
+// //               if (matchedAddress) {
+// //                 shippingAddress = {
+// //                   _id: matchedAddress._id,
+// //                   name: matchedAddress.name,
+// //                   phoneNumber: matchedAddress.phoneNumber,
+// //                   email: matchedAddress.email,
+// //                   pincode: matchedAddress.pincode,
+// //                   addressLine1: matchedAddress.addressLine1,
+// //                   addressLine2: matchedAddress.addressLine2 || "",
+// //                   cityTown: matchedAddress.cityTown,
+// //                   state: matchedAddress.state,
+// //                   country: matchedAddress.country,
+// //                   addressType: matchedAddress.addressType,
+// //                   isDefault: matchedAddress.isDefault,
+// //                 };
+// //               }
+// //             }
+// //           } catch (error) {
+// //             console.error(
+// //               `[fetchUserOrders] Error fetching shippingAddressId ${order.shippingAddressId} for order ${order.orderId}:`,
+// //               error.message
+// //             );
+// //           }
+// //         }
+
+// //         // Return enriched order with original orderDetails
+// //         return {
+// //           ...order.toObject(),
+// //           shippingAddressId: shippingAddress,
+// //           orderDetails: order.orderDetails.map((detail) => detail.toObject()),
+// //         };
+// //       })
+// //     );
+
+// //     return res
+// //       .status(200)
+// //       .json(apiResponse(200, "User orders fetched successfully", enrichedOrders));
+// //   } catch (error) {
+// //     console.error("Error fetching user orders:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(
+// //           500,
+// //           error.message || "Server error while fetching user orders",
+// //           null
+// //         )
+// //       );
+// //   }
+// // };
+
+// // // Fetch Confirmed User Orders Controller
+// // exports.fetchConfirmedUserOrders = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Fetch orders
+// //     let orders = await UserOrder.find({ userId, orderStatus: "Confirmed" }).sort({
+// //       createdAt: -1,
+// //     });
+
+// //     // Handle no orders
+// //     if (!orders || orders.length === 0) {
+// //       return res
+// //         .status(200)
+// //         .json(apiResponse(200, "No confirmed orders found", []));
+// //     }
+
+// //     return res
+// //       .status(200)
+// //       .json(
+// //         apiResponse(200, "Confirmed user orders fetched successfully", orders)
+// //       );
+// //   } catch (error) {
+// //     console.error("Error fetching confirmed user orders:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(
+// //           500,
+// //           error.message || "Server error while fetching confirmed user orders",
+// //           null
+// //         )
+// //       );
+// //   }
+// // };
+
+// // // Fetch Specific Order and All User Orders Controller
+// // exports.fetchOrderByOrderId = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+// //     const { orderId } = req.params;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Validate orderId
+// //     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid orderId is required", null));
+// //     }
+
+// //     // Fetch the specific order
+// //     let specificOrder = await UserOrder.findOne({ userId, orderId });
+
+// //     // If specific order not found, return 404
+// //     if (!specificOrder) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "Order not found for this user", null));
+// //     }
+
+// //     // Enrich specific order with shippingAddressId
+// //     let shippingAddress = null;
+// //     if (
+// //       specificOrder.shippingAddressId &&
+// //       mongoose.Types.ObjectId.isValid(specificOrder.shippingAddressId)
+// //     ) {
+// //       try {
+// //         const userAddress = await UserAddress.findOne({
+// //           userId,
+// //           "addressDetail._id": specificOrder.shippingAddressId,
+// //         });
+// //         if (userAddress) {
+// //           const matchedAddress = userAddress.addressDetail.find(
+// //             (addr) =>
+// //               addr._id.toString() === specificOrder.shippingAddressId.toString()
+// //           );
+// //           if (matchedAddress) {
+// //             shippingAddress = {
+// //               _id: matchedAddress._id,
+// //               name: matchedAddress.name,
+// //               phoneNumber: matchedAddress.phoneNumber,
+// //               email: matchedAddress.email,
+// //               pincode: matchedAddress.pincode,
+// //               addressLine1: matchedAddress.addressLine1,
+// //               addressLine2: matchedAddress.addressLine2 || "",
+// //               cityTown: matchedAddress.cityTown,
+// //               state: matchedAddress.state,
+// //               country: matchedAddress.country,
+// //               addressType: matchedAddress.addressType,
+// //               isDefault: matchedAddress.isDefault,
+// //             };
+// //           }
+// //         }
+// //       } catch (error) {
+// //         console.error(
+// //           `[fetchOrderByOrderId] Error fetching shippingAddressId ${specificOrder.shippingAddressId} for order ${specificOrder.orderId}:`,
+// //           error.message
+// //         );
+// //       }
+// //     }
+// //     specificOrder = {
+// //       ...specificOrder.toObject(),
+// //       shippingAddressId: shippingAddress,
+// //       orderDetails: specificOrder.orderDetails.map((detail) => detail.toObject()),
+// //     };
+
+// //     // Fetch all orders with enrichment
+// //     let allOrders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+// //     allOrders = await Promise.all(
+// //       allOrders.map(async (order) => {
+// //         let shippingAddress = null;
+// //         if (
+// //           order.shippingAddressId &&
+// //           mongoose.Types.ObjectId.isValid(order.shippingAddressId)
+// //         ) {
+// //           try {
+// //             const userAddress = await UserAddress.findOne({
+// //               userId,
+// //               "addressDetail._id": order.shippingAddressId,
+// //             });
+// //             if (userAddress) {
+// //               const matchedAddress = userAddress.addressDetail.find(
+// //                 (addr) =>
+// //                   addr._id.toString() === order.shippingAddressId.toString()
+// //               );
+// //               if (matchedAddress) {
+// //                 shippingAddress = {
+// //                   _id: matchedAddress._id,
+// //                   name: matchedAddress.name,
+// //                   phoneNumber: matchedAddress.phoneNumber,
+// //                   email: matchedAddress.email,
+// //                   pincode: matchedAddress.pincode,
+// //                   addressLine1: matchedAddress.addressLine1,
+// //                   addressLine2: matchedAddress.addressLine2 || "",
+// //                   cityTown: matchedAddress.cityTown,
+// //                   state: matchedAddress.state,
+// //                   country: matchedAddress.country,
+// //                   addressType: matchedAddress.addressType,
+// //                   isDefault: matchedAddress.isDefault,
+// //                 };
+// //               }
+// //             }
+// //           } catch (error) {
+// //             console.error(
+// //               `[fetchOrderByOrderId] Error fetching shippingAddressId ${order.shippingAddressId} for order ${order.orderId}:`,
+// //               error.message
+// //             );
+// //           }
+// //         }
+// //         return {
+// //           ...order.toObject(),
+// //           shippingAddressId: shippingAddress,
+// //           orderDetails: order.orderDetails.map((detail) => detail.toObject()),
+// //         };
+// //       })
+// //     );
+
+// //     // Prepare response data
+// //     const responseData = {
+// //       specificOrder,
+// //       allOrders,
+// //     };
+
+// //     return res
+// //       .status(200)
+// //       .json(
+// //         apiResponse(
+// //           200,
+// //           "Order and user orders fetched successfully",
+// //           responseData
+// //         )
+// //       );
+// //   } catch (error) {
+// //     console.error("Error fetching order and user orders:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(
+// //           500,
+// //           error.message || "Error while fetching order and user orders",
+// //           null
+// //         )
+// //       );
+// //   }
+// // };
+
+// // // Cancel Order Controller
+// // exports.cancelOrder = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+// //     const { orderId } = req.body;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Validate orderId
+// //     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid orderId is required", null));
+// //     }
+
+// //     // Find the order
+// //     const order = await UserOrder.findOne({ orderId, userId });
+// //     if (!order) {
+// //       return res.status(404).json(apiResponse(404, "Order not found", null));
+// //     }
+
+// //     // Check if order is already cancelled
+// //     if (order.isOrderCancelled) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Order is already cancelled", null));
+// //     }
+
+// //     // Check if order can be cancelled (only before "Dispatched")
+// //     const nonCancellableStatuses = ["Dispatched", "Delivered", "Returned"];
+// //     if (nonCancellableStatuses.includes(order.orderStatus)) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`,
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Calculate total refund amount based on item prices
+// //     let totalRefundAmount = 0;
+// //     for (const detail of order.orderDetails) {
+// //       const item = await Item.findById(detail.itemId);
+// //       if (!item) {
+// //         return res
+// //           .status(404)
+// //           .json(
+// //             apiResponse(404, `Item with ID ${detail.itemId} not found`, null)
+// //           );
+// //       }
+
+// //       const itemPrice = item.discountedPrice || item.MRP;
+// //       const quantity = detail.quantity || 1;
+// //       totalRefundAmount += itemPrice * quantity;
+// //     }
+
+// //     // Update order status and cancellation flag
+// //     order.orderStatus = "Cancelled";
+// //     order.isOrderCancelled = true;
+
+// //     // Handle refund logic based on payment method
+// //     if (order.paymentMethod === "COD") {
+// //       // No refund needed for COD as payment hasn't been made
+// //       order.refund = {
+// //         refundReason: "Order cancelled by user (COD)",
+// //         requestDate: new Date(),
+// //         refundAmount: 0,
+// //         refundStatus: "Completed",
+// //       };
+// //     } else if (
+// //       order.paymentMethod === "Online" &&
+// //       order.paymentStatus === "Paid"
+// //     ) {
+// //       // Full refund for online paid orders
+// //       if (!order.razorpayPaymentId) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "No valid Razorpay payment ID found", null));
+// //       }
+
+// //       try {
+// //         // Process refund with Razorpay
+// //         const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+// //           amount: totalRefundAmount * 100, // Convert to paise
+// //           speed: "normal",
+// //           notes: {
+// //             reason: "Order cancelled by user (Online)",
+// //             orderId: order.orderId,
+// //           },
+// //         });
+
+// //         // Set refund object with Razorpay refund transaction ID
+// //         order.refund = {
+// //           refundReason: "Order cancelled by user (Online)",
+// //           requestDate: new Date(),
+// //           refundAmount: totalRefundAmount,
+// //           refundRazorpayTransactionId: refund.id,
+// //           refundStatus: "Processing",
+// //         };
+// //       } catch (razorpayError) {
+// //         console.error("Razorpay refund error:", razorpayError);
+// //         return res
+// //           .status(400)
+// //           .json(
+// //             apiResponse(
+// //               400,
+// //               `Failed to process refund: ${razorpayError.message}`,
+// //               null
+// //             )
+// //           );
+// //       }
+// //     } else {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Refunds are only applicable for online paid orders or COD",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     await order.save();
+
+// //     return res
+// //       .status(200)
+// //       .json(apiResponse(200, "Order cancelled successfully", order));
+// //   } catch (error) {
+// //     console.error("Error cancelling order:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(500, error.message || "Error while cancelling order", null)
+// //       );
+// //   }
+// // };
+
+// // // Return and Refund Controller
+// // exports.returnRefund = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+// //     const {
+// //       orderId,
+// //       itemId,
+// //       returnReason,
+// //       specificReturnReason,
+// //       pickupLocationId,
+// //       bankDetails,
+// //     } = req.body;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Validate required fields
+// //     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid orderId is required", null));
+// //     }
+
+// //     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid itemId is required", null));
+// //     }
+
+// //     if (
+// //       !pickupLocationId ||
+// //       !mongoose.Types.ObjectId.isValid(pickupLocationId)
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid pickupLocationId is required", null));
+// //     }
+
+// //     if (
+// //       !returnReason ||
+// //       ![
+// //         "Size too small",
+// //         "Size too big",
+// //         "Don't like the fit",
+// //         "Don't like the quality",
+// //         "Not same as the catalogue",
+// //         "Product is damaged",
+// //         "Wrong product is received",
+// //         "Product arrived too late",
+// //       ].includes(returnReason)
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid returnReason is required", null));
+// //     }
+
+// //     if (
+// //       !specificReturnReason ||
+// //       typeof specificReturnReason !== "string" ||
+// //       specificReturnReason.trim() === ""
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid specificReturnReason is required", null));
+// //     }
+
+// //     // Validate bankDetails (required for COD, optional for Online)
+// //     if (!bankDetails) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "bankDetails are required", null));
+// //     }
+
+// //     const { accountNumber, ifscCode, bankName, accountHolderName } = bankDetails;
+// //     if (
+// //       !accountNumber ||
+// //       typeof accountNumber !== "string" ||
+// //       accountNumber.trim() === "" ||
+
+// //       !ifscCode ||
+// //       typeof ifscCode !== "string" ||
+// //       ifscCode.trim() === "" ||
+
+// //       !bankName ||
+// //       typeof bankName !== "string" ||
+// //       bankName.trim() === "" ||
+      
+// //       !accountHolderName ||
+// //       typeof accountHolderName !== "string" ||
+// //       accountHolderName.trim() === ""
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(400, "Complete and valid bankDetails are required", null)
+// //         );
+// //     }
+
+// //     // Find the order
+// //     const order = await UserOrder.findOne({ orderId, userId });
+// //     if (!order) {
+// //       return res.status(404).json(apiResponse(404, "Order not found", null));
+// //     }
+
+// //     // Check if order is eligible for return (must be Delivered)
+// //     if (order.orderStatus !== "Delivered") {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Order must be in Delivered status to initiate a return",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Find the specific order detail
+// //     const orderDetail = order.orderDetails.find(
+// //       (detail) => detail.itemId.toString() === itemId.toString()
+// //     );
+// //     if (!orderDetail) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "Item not found in order details", null));
+// //     }
+
+// //     // Check if a return or exchange request already exists
+// //     if (
+// //       orderDetail.isReturn ||
+// //       (orderDetail.returnInfo &&
+// //         orderDetail.returnInfo.refundStatus &&
+// //         orderDetail.returnInfo.refundStatus !== "Completed")
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "A return request is already in progress for this item",
+// //             null
+// //           )
+// //         );
+// //     }
+// //     if (
+// //       orderDetail.isExchange ||
+// //       (orderDetail.exchangeInfo &&
+// //         orderDetail.exchangeInfo.exchangeStatus &&
+// //         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "An exchange request is already in progress for this item",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Validate pickupLocationId
+// //     const addressExists = await UserAddress.findOne({
+// //       userId,
+// //       "addressDetail._id": pickupLocationId,
+// //     });
+// //     if (!addressExists) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "Pickup address not found", null));
+// //     }
+
+// //     // Calculate refund amount based on item price
+// //     const item = await Item.findById(orderDetail.itemId);
+// //     if (!item) {
+// //       return res
+// //         .status(404)
+// //         .json(
+// //           apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+// //         );
+// //     }
+
+// //     const itemPrice = item.discountedPrice || item.MRP;
+// //     const quantity = orderDetail.quantity || 1;
+// //     const refundAmountBase = itemPrice * quantity;
+
+// //     // Initialize return info
+// //     const returnInfo = {
+// //       returnReason,
+// //       specificReturnReason,
+// //       requestDate: new Date(),
+// //       pickupLocationId,
+// //       bankDetails,
+// //       refundStatus: "Initiated",
+// //       refundAmount: 0, // Set below based on payment method
+// //     };
+
+// //     // Handle refund logic based on payment method
+// //     if (order.paymentMethod === "COD") {
+// //       // For COD, deduct Rs.50 non-refundable charge
+// //       const refundAmount = Math.max(0, refundAmountBase - 50);
+// //       returnInfo.refundStatus = "Initiated"; // Refund to bank account, processed manually
+// //       returnInfo.returnAndRefundTransactionId = `REF-COD-${Date.now()}`;
+// //       returnInfo.refundAmount = refundAmount;
+// //     } else if (
+// //       order.paymentMethod === "Online" &&
+// //       order.paymentStatus === "Paid"
+// //     ) {
+// //       // For online paid orders, full refund via Razorpay
+// //       if (!order.razorpayPaymentId) {
+// //         return res
+// //           .status(400)
+// //           .json(apiResponse(400, "No valid Razorpay payment ID found", null));
+// //       }
+
+// //       try {
+// //         // Process refund with Razorpay for the item price
+// //         const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+// //           amount: refundAmountBase * 100, // Convert to paise (full item refund)
+// //           speed: "normal",
+// //           notes: {
+// //             reason: returnReason,
+// //             specificReason: specificReturnReason,
+// //             orderId: order.orderId,
+// //             itemId,
+// //           },
+// //         });
+
+// //         // Update return info with Razorpay refund transaction ID
+// //         returnInfo.returnAndRefundTransactionId = refund.id;
+// //         returnInfo.refundStatus = "Processing";
+// //         returnInfo.refundAmount = refundAmountBase;
+// //       } catch (razorpayError) {
+// //         console.error("Razorpay refund error:", razorpayError);
+// //         return res
+// //           .status(400)
+// //           .json(
+// //             apiResponse(
+// //               400,
+// //               `Failed to process refund: ${razorpayError.message}`,
+// //               null
+// //             )
+// //           );
+// //       }
+// //     } else {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Refunds are only applicable for online paid orders or COD",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Update order detail with return info
+// //     orderDetail.isReturn = true;
+// //     orderDetail.returnInfo = returnInfo;
+
+// //     // Update order status to Returned if any item is returned
+// //     order.orderStatus = "Returned";
+
+// //     await order.save();
+
+// //     return res
+// //       .status(200)
+// //       .json(
+// //         apiResponse(200, "Return and refund request initiated successfully", {
+// //           order,
+// //         })
+// //       );
+// //   } catch (error) {
+// //     console.error("Error processing return and refund:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(
+// //           500,
+// //           error.message || "Error while processing return and refund",
+// //           null
+// //         )
+// //       );
+// //   }
+// // };
+
+// // // Return and Exchange Controller
+// // exports.returnAndExchange = async (req, res) => {
+// //   try {
+// //     const { userId } = req.user;
+// //     const {
+// //       orderId,
+// //       itemId,
+// //       exchangeReason,
+// //       exchangeSpecificReason,
+// //       pickupLocationId,
+// //       color,
+// //       size,
+// //       skuId,
+// //     } = req.body;
+
+// //     // Validate userId
+// //     if (!mongoose.Types.ObjectId.isValid(userId)) {
+// //       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+// //     }
+
+// //     // Validate required fields
+// //     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid orderId is required", null));
+// //     }
+
+// //     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid itemId is required", null));
+// //     }
+
+// //     if (
+// //       !pickupLocationId ||
+// //       !mongoose.Types.ObjectId.isValid(pickupLocationId)
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid pickupLocationId is required", null));
+// //     }
+
+// //     if (
+// //       !exchangeReason ||
+// //       ![
+// //         "Size too small",
+// //         "Size too big",
+// //         "Don't like the fit",
+// //         "Don't like the quality",
+// //         "Not same as the catalogue",
+// //         "Product is damaged",
+// //         "Wrong product is received",
+// //         "Product arrived too late",
+// //       ].includes(exchangeReason)
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid exchangeReason is required", null));
+// //     }
+
+// //     if (
+// //       !exchangeSpecificReason ||
+// //       typeof exchangeSpecificReason !== "string" ||
+// //       exchangeSpecificReason.trim() === ""
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(400, "Valid exchangeSpecificReason is required", null)
+// //         );
+// //     }
+
+// //     if (!color || typeof color !== "string" || color.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid color is required", null));
+// //     }
+
+// //     if (!size || typeof size !== "string" || size.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid size is required", null));
+// //     }
+
+// //     if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, "Valid skuId is required", null));
+// //     }
+
+// //     // Find the order
+// //     const order = await UserOrder.findOne({ orderId, userId });
+// //     if (!order) {
+// //       return res.status(404).json(apiResponse(404, "Order not found", null));
+// //     }
+
+// //     // Check if order is eligible for exchange (must be Delivered)
+// //     if (order.orderStatus !== "Delivered") {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Order must be in Delivered status to initiate an exchange",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Find the specific order detail
+// //     const orderDetail = order.orderDetails.find(
+// //       (detail) => detail.itemId.toString() === itemId.toString()
+// //     );
+// //     if (!orderDetail) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "Item not found in order details", null));
+// //     }
+
+// //     // Check if a return or exchange request already exists
+// //     if (
+// //       orderDetail.isReturn ||
+// //       (orderDetail.returnInfo &&
+// //         orderDetail.returnInfo.refundStatus &&
+// //         orderDetail.returnInfo.refundStatus !== "Completed")
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "A return request is already in progress for this item",
+// //             null
+// //           )
+// //         );
+// //     }
+// //     if (
+// //       orderDetail.isExchange ||
+// //       (orderDetail.exchangeInfo &&
+// //         orderDetail.exchangeInfo.exchangeStatus &&
+// //         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+// //     ) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "An exchange request is already in progress for this item",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Validate pickupLocationId
+// //     const addressExists = await UserAddress.findOne({
+// //       userId,
+// //       "addressDetail._id": pickupLocationId,
+// //     });
+// //     if (!addressExists) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "Pickup address not found", null));
+// //     }
+
+// //     // Validate the requested product variant (color, size, skuId)
+// //     const item = await Item.findById(orderDetail.itemId);
+// //     if (!item) {
+// //       return res
+// //         .status(404)
+// //         .json(
+// //           apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+// //         );
+// //     }
+
+// //     const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId });
+// //     if (!itemDetail) {
+// //       return res
+// //         .status(404)
+// //         .json(apiResponse(404, "Item details not found", null));
+// //     }
+
+// //     // Validate color, size, and skuId in ItemDetail
+// //     const colorEntry = itemDetail.imagesByColor.find(
+// //       (entry) => entry.color.toLowerCase() === color.toLowerCase()
+// //     );
+// //     if (!colorEntry) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(400, `Color ${color} not available for this item`, null)
+// //         );
+// //     }
+
+// //     const sizeEntry = colorEntry.sizes.find(
+// //       (s) => s.size === size && s.skuId === skuId
+// //     );
+// //     if (!sizeEntry) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             `Size ${size} or skuId ${skuId} not available for color ${color}`,
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Check stock availability
+// //     if (sizeEntry.stock <= 0) {
+// //       return res
+// //         .status(400)
+// //         .json(apiResponse(400, `Requested size ${size} is out of stock`, null));
+// //     }
+
+// //     // Validate price (ensure same price for exchange)
+// //     const originalPrice = item.discountedPrice || item.MRP;
+// //     const newPrice = originalPrice; // Same item, so price remains the same for different color/size
+// //     if (originalPrice !== newPrice) {
+// //       return res
+// //         .status(400)
+// //         .json(
+// //           apiResponse(
+// //             400,
+// //             "Exchange is only allowed for products with the same price",
+// //             null
+// //           )
+// //         );
+// //     }
+
+// //     // Initialize exchange info
+// //     const exchangeInfo = {
+// //       exchangeReason,
+// //       exchangeSpecificReason,
+// //       color,
+// //       size,
+// //       skuId,
+// //       isSizeAvailability: true,
+// //       requestDate: new Date(),
+// //       pickupLocationId,
+// //       exchangeStatus: "Initiated",
+// //     };
+
+// //     // Update order detail with exchange info
+// //     orderDetail.isExchange = true;
+// //     orderDetail.exchangeInfo = exchangeInfo;
+
+// //     // Update order status to Returned if any item is exchanged
+// //     order.orderStatus = "Returned";
+
+// //     await order.save();
+
+// //     return res
+// //       .status(200)
+// //       .json(
+// //         apiResponse(200, "Exchange request initiated successfully", {
+// //           order,
+// //         })
+// //       );
+// //   } catch (error) {
+// //     console.error("Error processing return and exchange:", error.message);
+// //     return res
+// //       .status(500)
+// //       .json(
+// //         apiResponse(
+// //           500,
+// //           error.message || "Error while processing return and exchange",
+// //           null
+// //         )
+// //       );
+// //   }
+// // };
+
+
+// const mongoose = require("mongoose");
+// const UserOrder = require("../../models/User/UserOrder");
+// const UserCart = require("../../models/User/UserCart");
+// const UserAddress = require("../../models/User/UserAddress");
+// const Item = require("../../models/Items/Item");
+// const ItemDetail = require("../../models/Items/ItemDetail");
+// const User = require("../../models/User/User");
+// const { apiResponse } = require("../../utils/apiResponse");
+// const razorpay = require("../../config/razorpay");
+// const crypto = require("crypto");
+
+// // Function to populate order details
+// const populateOrderDetails = async (orders, userId) => {
+//   try {
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       throw new Error("Invalid userId");
+//     }
+
+//     // Convert single order to array if not already
+//     const ordersArray = Array.isArray(orders) ? orders : [orders];
+
+//     // Populate user details (name, email, phone, role)
+//     const populatedOrders = await UserOrder.populate(ordersArray, {
+//       path: "userId",
+//       model: User,
+//       select: "name email phone role",
+//     });
+
+//     // Enrich orders with item details, shipping address, and pickup location
+//     const enrichedOrders = await Promise.all(
+//       populatedOrders.map(async (order) => {
+//         // Populate itemId in orderDetails
+//         const populatedOrder = await UserOrder.populate(order, {
+//           path: "orderDetails.itemId",
+//           model: Item,
+//           select: "name description MRP discountedPrice image",
+//         });
+
+//         // Initialize shippingAddress and pickupLocation
+//         let shippingAddress = null;
+//         let pickupLocation = null;
+
+//         // Fetch shippingAddressId from UserAddress
+//         if (
+//           order.shippingAddressId &&
+//           mongoose.Types.ObjectId.isValid(order.shippingAddressId)
+//         ) {
+//           try {
+//             const userAddress = await UserAddress.findOne({
+//               userId: order.userId._id,
+//               "addressDetail._id": order.shippingAddressId,
+//             });
+//             if (userAddress) {
+//               const matchedAddress = userAddress.addressDetail.find(
+//                 (addr) =>
+//                   addr._id.toString() === order.shippingAddressId.toString()
+//               );
+//               if (matchedAddress) {
+//                 shippingAddress = {
+//                   _id: matchedAddress._id,
+//                   name: matchedAddress.name,
+//                   phoneNumber: matchedAddress.phoneNumber,
+//                   email: matchedAddress.email,
+//                   pincode: matchedAddress.pincode,
+//                   addressLine1: matchedAddress.addressLine1,
+//                   addressLine2: matchedAddress.addressLine2 || "",
+//                   cityTown: matchedAddress.cityTown,
+//                   state: matchedAddress.state,
+//                   country: matchedAddress.country,
+//                   addressType: matchedAddress.addressType,
+//                   isDefault: matchedAddress.isDefault,
+//                 };
+//               }
+//             }
+//           } catch (error) {
+//             console.error(
+//               `[populateOrderDetails] Error fetching shippingAddressId ${order.shippingAddressId} for order ${order.orderId}:`,
+//               error.message
+//             );
+//           }
+//         }
+
+//         // Fetch pickupLocationId from orderDetails.returnInfo and orderDetails.exchangeInfo
+//         for (const detail of populatedOrder.orderDetails) {
+//           if (
+//             detail.returnInfo &&
+//             detail.returnInfo.pickupLocationId &&
+//             mongoose.Types.ObjectId.isValid(detail.returnInfo.pickupLocationId)
+//           ) {
+//             try {
+//               const userAddress = await UserAddress.findOne({
+//                 userId: order.userId._id,
+//                 "addressDetail._id": detail.returnInfo.pickupLocationId,
+//               });
+//               if (userAddress) {
+//                 const matchedAddress = userAddress.addressDetail.find(
+//                   (addr) =>
+//                     addr._id.toString() ===
+//                     detail.returnInfo.pickupLocationId.toString()
+//                 );
+//                 if (matchedAddress) {
+//                   pickupLocation = {
+//                     _id: matchedAddress._id,
+//                     name: matchedAddress.name,
+//                     phoneNumber: matchedAddress.phoneNumber,
+//                     email: matchedAddress.email,
+//                     pincode: matchedAddress.pincode,
+//                     addressLine1: matchedAddress.addressLine1,
+//                     addressLine2: matchedAddress.addressLine2 || "",
+//                     cityTown: matchedAddress.cityTown,
+//                     state: matchedAddress.state,
+//                     country: matchedAddress.country,
+//                     addressType: matchedAddress.addressType,
+//                     isDefault: matchedAddress.isDefault,
+//                   };
+//                   detail.returnInfo.pickupLocationId = pickupLocation;
+//                 }
+//               }
+//             } catch (error) {
+//               console.error(
+//                 `[populateOrderDetails] Error fetching pickupLocationId ${detail.returnInfo.pickupLocationId} for order ${order.orderId}:`,
+//                 error.message
+//               );
+//             }
+//           }
+
+//           if (
+//             detail.exchangeInfo &&
+//             detail.exchangeInfo.pickupLocationId &&
+//             mongoose.Types.ObjectId.isValid(detail.exchangeInfo.pickupLocationId)
+//           ) {
+//             try {
+//               const userAddress = await UserAddress.findOne({
+//                 userId: order.userId._id,
+//                 "addressDetail._id": detail.exchangeInfo.pickupLocationId,
+//               });
+//               if (userAddress) {
+//                 const matchedAddress = userAddress.addressDetail.find(
+//                   (addr) =>
+//                     addr._id.toString() ===
+//                     detail.exchangeInfo.pickupLocationId.toString()
+//                 );
+//                 if (matchedAddress) {
+//                   pickupLocation = {
+//                     _id: matchedAddress._id,
+//                     name: matchedAddress.name,
+//                     phoneNumber: matchedAddress.phoneNumber,
+//                     email: matchedAddress.email,
+//                     pincode: matchedAddress.pincode,
+//                     addressLine1: matchedAddress.addressLine1,
+//                     addressLine2: matchedAddress.addressLine2 || "",
+//                     cityTown: matchedAddress.cityTown,
+//                     state: matchedAddress.state,
+//                     country: matchedAddress.country,
+//                     addressType: matchedAddress.addressType,
+//                     isDefault: matchedAddress.isDefault,
+//                   };
+//                   detail.exchangeInfo.pickupLocationId = pickupLocation;
+//                 }
+//               }
+//             } catch (error) {
+//               console.error(
+//                 `[populateOrderDetails] Error fetching pickupLocationId ${detail.exchangeInfo.pickupLocationId} for order ${order.orderId}:`,
+//                 error.message
+//               );
+//             }
+//           }
+//         }
+
+//         // Return enriched order
+//         return {
+//           ...populatedOrder.toObject(),
+//           shippingAddressId: shippingAddress,
+//           orderDetails: populatedOrder.orderDetails.map((detail) => ({
+//             ...detail.toObject(),
+//             returnInfo: detail.returnInfo
+//               ? {
+//                   ...detail.returnInfo.toObject(),
+//                   pickupLocationId: detail.returnInfo.pickupLocationId,
+//                 }
+//               : null,
+//             exchangeInfo: detail.exchangeInfo
+//               ? {
+//                   ...detail.exchangeInfo.toObject(),
+//                   pickupLocationId: detail.exchangeInfo.pickupLocationId,
+//                 }
+//               : null,
+//           })),
+//         };
+//       })
+//     );
+
+//     // Return single order or array based on input
+//     return Array.isArray(orders) ? enrichedOrders : enrichedOrders[0];
+//   } catch (error) {
+//     console.error("Error populating order details:", error.message);
+//     throw error;
+//   }
+// };
+
+// // Create Order Controller (unchanged)
+// exports.createUserOrder = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const {
+//       orderDetails,
+//       invoice,
+//       shippingAddressId,
+//       paymentMethod,
+//       totalAmount,
+//     } = req.body;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Validate required fields
+//     if (
+//       !orderDetails ||
+//       !Array.isArray(orderDetails) ||
+//       orderDetails.length === 0
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "orderDetails array is required and cannot be empty",
+//             null
+//           )
+//         );
+//     }
+
+//     if (!Array.isArray(invoice) || invoice.length === 0) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Non-empty invoice array is required", null));
+//     }
+
+//     // Validate invoice entries
+//     for (const entry of invoice) {
+//       if (
+//         !entry.key ||
+//         typeof entry.key !== "string" ||
+//         entry.key.trim() === ""
+//       ) {
+//         return res
+//           .status(400)
+//           .json(
+//             apiResponse(400, "Each invoice entry must have a valid key", null)
+//           );
+//       }
+//       if (
+//         entry.value === undefined ||
+//         entry.value === null ||
+//         entry.value.toString().trim() === ""
+//       ) {
+//         return res
+//           .status(400)
+//           .json(
+//             apiResponse(400, "Each invoice entry must have a valid value", null)
+//           );
+//       }
+//     }
+
+//     // Validate totalAmount
+//     if (typeof totalAmount !== "number" || totalAmount <= 0) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Valid totalAmount is required and must be positive",
+//             null
+//           )
+//         );
+//     }
+
+//     // Validate payment method
+//     if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Valid payment method (Online or COD) is required",
+//             null
+//           )
+//         );
+//     }
+
+//     // Validate shippingAddressId if provided
+//     if (shippingAddressId) {
+//       if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "Invalid shippingAddressId", null));
+//       }
+//       const addressExists = await UserAddress.findOne({
+//         userId,
+//         "addressDetail._id": shippingAddressId,
+//       });
+//       if (!addressExists) {
+//         return res
+//           .status(404)
+//           .json(apiResponse(404, "Shipping address not found", null));
+//       }
+//     }
+
+//     // Validate orderDetails against UserCart
+//     const userCart = await UserCart.findOne({ userId });
+//     if (!userCart) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "User cart not found", null));
+//     }
+
+//     for (const orderItem of orderDetails) {
+//       if (
+//         !orderItem.itemId ||
+//         !mongoose.Types.ObjectId.isValid(orderItem.itemId)
+//       ) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "Valid itemId is required", null));
+//       }
+//       if (
+//         !orderItem.quantity ||
+//         typeof orderItem.quantity !== "number" ||
+//         orderItem.quantity < 1
+//       ) {
+//         return res
+//           .status(400)
+//           .json(
+//             apiResponse(400, "Valid quantity (minimum 1) is required", null)
+//           );
+//       }
+//       if (
+//         !orderItem.size ||
+//         typeof orderItem.size !== "string" ||
+//         orderItem.size.trim() === ""
+//       ) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "Valid size is required", null));
+//       }
+//       if (
+//         !orderItem.color ||
+//         typeof orderItem.color !== "string" ||
+//         orderItem.color.trim() === ""
+//       ) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "Valid color is required", null));
+//       }
+//       if (
+//         !orderItem.skuId ||
+//         typeof orderItem.skuId !== "string" ||
+//         orderItem.skuId.trim() === ""
+//       ) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "Valid skuId is required", null));
+//       }
+
+//       // Check if item exists in UserCart
+//       const cartItem = userCart.items.find(
+//         (item) =>
+//           item.itemId.toString() === orderItem.itemId.toString() &&
+//           item.size === orderItem.size &&
+//           item.color === orderItem.color &&
+//           item.skuId === orderItem.skuId
+//       );
+//       if (!cartItem) {
+//         return res
+//           .status(404)
+//           .json(
+//             apiResponse(
+//               404,
+//               `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`,
+//               null
+//             )
+//           );
+//       }
+//     }
+
+//     // Generate unique orderId
+//     const orderId = `ORD-${Date.now()}-${Math.random()
+//       .toString(36)
+//       .substr(2, 9)}`;
+
+//     // Initialize order data
+//     const orderData = {
+//       orderId,
+//       userId,
+//       orderDetails: orderDetails.map((item) => ({
+//         itemId: item.itemId,
+//         quantity: item.quantity,
+//         size: item.size,
+//         color: item.color,
+//         skuId: item.skuId,
+//         addedAt: new Date(),
+//         isReturn: false,
+//         isExchange: false,
+//       })),
+//       invoice: invoice.map((entry) => ({
+//         key: entry.key.trim().toLowerCase(),
+//         value: entry.value.toString().trim(),
+//       })),
+//       shippingAddressId,
+//       paymentMethod,
+//       isOrderPlaced: false,
+//       totalAmount,
+//       orderStatus: "Initiated",
+//       paymentStatus: "Pending",
+//       razorpayOrderId: null,
+//       razorpayPaymentId: null,
+//       razorpaySignature: null,
+//       isOrderCancelled: false,
+//       deliveryDate: null,
+//     };
+
+//     // Handle payment method-specific logic
+//     if (paymentMethod === "COD") {
+//       orderData.isOrderPlaced = true;
+//       orderData.orderStatus = "Confirmed";
+//       orderData.paymentStatus = "Pending";
+//     } else if (paymentMethod === "Online") {
+//       const options = {
+//         amount: totalAmount * 100, // Convert to paise
+//         currency: "INR",
+//         receipt: `receipt_${Date.now()}`,
+//         payment_capture: 1,
+//       };
+//       const order = await razorpay.orders.create(options);
+//       orderData.razorpayOrderId = order.id;
+//     }
+
+//     // Create and save new order
+//     const newOrder = new UserOrder(orderData);
+//     const savedOrder = await newOrder.save();
+
+//     // Remove cart items that were ordered
+//     userCart.items = userCart.items.filter(
+//       (cartItem) =>
+//         !orderDetails.some(
+//           (orderItem) =>
+//             orderItem.itemId.toString() === cartItem.itemId.toString() &&
+//             orderItem.size === cartItem.size &&
+//             orderItem.color === cartItem.color &&
+//             orderItem.skuId === cartItem.skuId
+//         )
+//     );
+//     await userCart.save();
+
+//     return res
+//       .status(201)
+//       .json(apiResponse(201, "Order created successfully", savedOrder));
+//   } catch (error) {
+//     console.error("Error creating order:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(500, error.message || "Error while creating order", null)
+//       );
+//   }
+// };
+
+// // Verify Payment Controller (unchanged)
+// exports.verifyPayment = async (req, res) => {
+//   try {
+//     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+//       req.body;
+
+//     // Validate required fields
+//     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Missing required payment details", null));
+//     }
+
+//     // Verify Razorpay signature
+//     const body = razorpay_order_id + "|" + razorpay_payment_id;
+//     const expectedSignature = crypto
+//       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+//       .update(body)
+//       .digest("hex");
+
+//     if (expectedSignature !== razorpay_signature) {
+//       return res.status(400).json(apiResponse(400, "Invalid signature", null));
+//     }
+
+//     // Update order with payment details
+//     const userOrder = await UserOrder.findOneAndUpdate(
+//       { razorpayOrderId: razorpay_order_id },
+//       {
+//         $set: {
+//           paymentStatus: "Paid",
+//           razorpayPaymentId: razorpay_payment_id,
+//           razorpaySignature: razorpay_signature,
+//           isOrderPlaced: true,
+//           orderStatus: "Confirmed",
+//         },
+//       },
+//       { new: true }
+//     );
+
+//     if (!userOrder) {
+//       return res.status(404).json(apiResponse(404, "Order not found", null));
+//     }
+
+//     return res
+//       .status(200)
+//       .json(apiResponse(200, "Payment verified successfully", userOrder));
+//   } catch (error) {
+//     console.error("Error verifying payment:", error.message);
+//     return res
+//       .status(500)
+//       .json(apiResponse(500, error.message || "Error verifying payment", null));
+//   }
+// };
+
+// // Fetch All User Orders Controller
+// exports.fetchUserOrders = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Fetch orders
+//     let orders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+
+//     if (!orders || orders.length === 0) {
+//       return res
+//         .status(200)
+//         .json(apiResponse(200, "No user orders found", []));
+//     }
+
+//     // Populate order details
+//     const enrichedOrders = await populateOrderDetails(orders, userId);
+
+//     return res
+//       .status(200)
+//       .json(apiResponse(200, "User orders fetched successfully", enrichedOrders));
+//   } catch (error) {
+//     console.error("Error fetching user orders:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(
+//           500,
+//           error.message || "Server error while fetching user orders",
+//           null
+//         )
+//       );
+//   }
+// };
+
+// // Fetch Confirmed User Orders Controller
+// exports.fetchConfirmedUserOrders = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Fetch orders
+//     let orders = await UserOrder.find({ userId, orderStatus: "Confirmed" }).sort({
+//       createdAt: -1,
+//     });
+
+//     // Handle no orders
+//     if (!orders || orders.length === 0) {
+//       return res
+//         .status(200)
+//         .json(apiResponse(200, "No confirmed orders found", []));
+//     }
+
+//     // Populate order details
+//     const enrichedOrders = await populateOrderDetails(orders, userId);
+
+//     return res
+//       .status(200)
+//       .json(
+//         apiResponse(200, "Confirmed user orders fetched successfully", enrichedOrders)
+//       );
+//   } catch (error) {
+//     console.error("Error fetching confirmed user orders:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(
+//           500,
+//           error.message || "Server error while fetching confirmed user orders",
+//           null
+//         )
+//       );
+//   }
+// };
+
+// // Fetch Specific Order and All User Orders Controller
+// exports.fetchOrderByOrderId = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const { orderId } = req.params;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Validate orderId
+//     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid orderId is required", null));
+//     }
+
+//     // Fetch the specific order
+//     let specificOrder = await UserOrder.findOne({ userId, orderId });
+
+//     // If specific order not found, return 404
+//     if (!specificOrder) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "Order not found for this user", null));
+//     }
+
+//     // Populate specific order details
+//     specificOrder = await populateOrderDetails(specificOrder, userId);
+
+//     // Fetch all orders and populate
+//     let allOrders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+//     allOrders = await populateOrderDetails(allOrders, userId);
+
+//     // Prepare response data
+//     const responseData = {
+//       specificOrder,
+//       allOrders,
+//     };
+
+//     return res
+//       .status(200)
+//       .json(
+//         apiResponse(
+//           200,
+//           "Order and user orders fetched successfully",
+//           responseData
+//         )
+//       );
+//   } catch (error) {
+//     console.error("Error fetching order and user orders:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(
+//           500,
+//           error.message || "Error while fetching order and user orders",
+//           null
+//         )
+//       );
+//   }
+// };
+
+// // Cancel Order Controller
+// exports.cancelOrder = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const { orderId } = req.body;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Validate orderId
+//     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid orderId is required", null));
+//     }
+
+//     // Find the order
+//     const order = await UserOrder.findOne({ orderId, userId });
+//     if (!order) {
+//       return res.status(404).json(apiResponse(404, "Order not found", null));
+//     }
+
+//     // Check if order is already cancelled
+//     if (order.isOrderCancelled) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Order is already cancelled", null));
+//     }
+
+//     // Check if order can be cancelled (only before "Dispatched")
+//     const nonCancellableStatuses = ["Dispatched", "Delivered", "Returned"];
+//     if (nonCancellableStatuses.includes(order.orderStatus)) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`,
+//             null
+//           )
+//         );
+//     }
+
+//     // Calculate total refund amount based on item prices
+//     let totalRefundAmount = 0;
+//     for (const detail of order.orderDetails) {
+//       const item = await Item.findById(detail.itemId);
+//       if (!item) {
+//         return res
+//           .status(404)
+//           .json(
+//             apiResponse(404, `Item with ID ${detail.itemId} not found`, null)
+//           );
+//       }
+
+//       const itemPrice = item.discountedPrice || item.MRP;
+//       const quantity = detail.quantity || 1;
+//       totalRefundAmount += itemPrice * quantity;
+//     }
+
+//     // Update order status and cancellation flag
+//     order.orderStatus = "Cancelled";
+//     order.isOrderCancelled = true;
+
+//     // Handle refund logic based on payment method
+//     if (order.paymentMethod === "COD") {
+//       // No refund needed for COD as payment hasn't been made
+//       order.refund = {
+//         refundReason: "Order cancelled by user (COD)",
+//         requestDate: new Date(),
+//         refundAmount: 0,
+//         refundStatus: "Completed",
+//       };
+//     } else if (
+//       order.paymentMethod === "Online" &&
+//       order.paymentStatus === "Paid"
+//     ) {
+//       // Full refund for online paid orders
+//       if (!order.razorpayPaymentId) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "No valid Razorpay payment ID found", null));
+//       }
+
+//       try {
+//         // Process refund with Razorpay
+//         const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+//           amount: totalRefundAmount * 100, // Convert to paise
+//           speed: "normal",
+//           notes: {
+//             reason: "Order cancelled by user (Online)",
+//             orderId: order.orderId,
+//           },
+//         });
+
+//         // Set refund object with Razorpay refund transaction ID
+//         order.refund = {
+//           refundReason: "Order cancelled by user (Online)",
+//           requestDate: new Date(),
+//           refundAmount: totalRefundAmount,
+//           refundRazorpayTransactionId: refund.id,
+//           refundStatus: "Processing",
+//         };
+//       } catch (razorpayError) {
+//         console.error("Razorpay refund error:", razorpayError);
+//         return res
+//           .status(400)
+//           .json(
+//             apiResponse(
+//               400,
+//               `Failed to process refund: ${razorpayError.message}`,
+//               null
+//             )
+//           );
+//       }
+//     } else {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Refunds are only applicable for online paid orders or COD",
+//             null
+//           )
+//         );
+//     }
+
+//     await order.save();
+
+//     // Populate order details
+//     const enrichedOrder = await populateOrderDetails(order, userId);
+
+//     return res
+//       .status(200)
+//       .json(apiResponse(200, "Order cancelled successfully", enrichedOrder));
+//   } catch (error) {
+//     console.error("Error cancelling order:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(500, error.message || "Error while cancelling order", null)
+//       );
+//   }
+// };
+
+// // Return and Refund Controller
+// exports.returnRefund = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const {
+//       orderId,
+//       itemId,
+//       returnReason,
+//       specificReturnReason,
+//       pickupLocationId,
+//       bankDetails,
+//     } = req.body;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Validate required fields
+//     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid orderId is required", null));
+//     }
+
+//     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid itemId is required", null));
+//     }
+
+//     if (
+//       !pickupLocationId ||
+//       !mongoose.Types.ObjectId.isValid(pickupLocationId)
+//     ) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid pickupLocationId is required", null));
+//     }
+
+//     if (
+//       !returnReason ||
+//       ![
+//         "Size too small",
+//         "Size too big",
+//         "Don't like the fit",
+//         "Don't like the quality",
+//         "Not same as the catalogue",
+//         "Product is damaged",
+//         "Wrong product is received",
+//         "Product arrived too late",
+//       ].includes(returnReason)
+//     ) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid returnReason is required", null));
+//     }
+
+//     if (
+//       !specificReturnReason ||
+//       typeof specificReturnReason !== "string" ||
+//       specificReturnReason.trim() === ""
+//     ) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid specificReturnReason is required", null));
+//     }
+
+//     // Validate bankDetails
+//     if (!bankDetails) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "bankDetails are required", null));
+//     }
+
+//     const { accountNumber, ifscCode, bankName, accountHolderName } = bankDetails;
+//     if (
+//       !accountNumber ||
+//       typeof accountNumber !== "string" ||
+//       accountNumber.trim() === "" ||
+//       !ifscCode ||
+//       typeof ifscCode !== "string" ||
+//       ifscCode.trim() === "" ||
+//       !bankName ||
+//       typeof bankName !== "string" ||
+//       bankName.trim() === "" ||
+//       !accountHolderName ||
+//       typeof accountHolderName !== "string" ||
+//       accountHolderName.trim() === ""
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(400, "Complete and valid bankDetails are required", null)
+//         );
+//     }
+
+//     // Find the order
+//     const order = await UserOrder.findOne({ orderId, userId });
+//     if (!order) {
+//       return res.status(404).json(apiResponse(404, "Order not found", null));
+//     }
+
+//     // Check if order is eligible for return
+//     if (order.orderStatus !== "Delivered") {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Order must be in Delivered status to initiate a return",
+//             null
+//           )
+//         );
+//     }
+
+//     // Find the specific order detail
+//     const orderDetail = order.orderDetails.find(
+//       (detail) => detail.itemId.toString() === itemId.toString()
+//     );
+//     if (!orderDetail) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "Item not found in order details", null));
+//     }
+
+//     // Check if a return or exchange request already exists
+//     if (
+//       orderDetail.isReturn ||
+//       (orderDetail.returnInfo &&
+//         orderDetail.returnInfo.refundStatus &&
+//         orderDetail.returnInfo.refundStatus !== "Completed")
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "A return request is already in progress for this item",
+//             null
+//           )
+//         );
+//     }
+//     if (
+//       orderDetail.isExchange ||
+//       (orderDetail.exchangeInfo &&
+//         orderDetail.exchangeInfo.exchangeStatus &&
+//         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "An exchange request is already in progress for this item",
+//             null
+//           )
+//         );
+//     }
+
+//     // Validate pickupLocationId
+//     const addressExists = await UserAddress.findOne({
+//       userId,
+//       "addressDetail._id": pickupLocationId,
+//     });
+//     if (!addressExists) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "Pickup address not found", null));
+//     }
+
+//     // Calculate refund amount
+//     const item = await Item.findById(orderDetail.itemId);
+//     if (!item) {
+//       return res
+//         .status(404)
+//         .json(
+//           apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+//         );
+//     }
+
+//     const itemPrice = item.discountedPrice || item.MRP;
+//     const quantity = orderDetail.quantity || 1;
+//     const refundAmountBase = itemPrice * quantity;
+
+//     // Initialize return info
+//     const returnInfo = {
+//       returnReason,
+//       specificReturnReason,
+//       requestDate: new Date(),
+//       pickupLocationId,
+//       bankDetails,
+//       refundStatus: "Initiated",
+//       refundAmount: 0,
+//     };
+
+//     // Handle refund logic
+//     if (order.paymentMethod === "COD") {
+//       const refundAmount = Math.max(0, refundAmountBase - 50);
+//       returnInfo.refundStatus = "Initiated";
+//       returnInfo.returnAndRefundTransactionId = `REF-COD-${Date.now()}`;
+//       returnInfo.refundAmount = refundAmount;
+//     } else if (
+//       order.paymentMethod === "Online" &&
+//       order.paymentStatus === "Paid"
+//     ) {
+//       if (!order.razorpayPaymentId) {
+//         return res
+//           .status(400)
+//           .json(apiResponse(400, "No valid Razorpay payment ID found", null));
+//       }
+
+//       try {
+//         const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+//           amount: refundAmountBase * 100,
+//           speed: "normal",
+//           notes: {
+//             reason: returnReason,
+//             specificReason: specificReturnReason,
+//             orderId: order.orderId,
+//             itemId,
+//           },
+//         });
+
+//         returnInfo.returnAndRefundTransactionId = refund.id;
+//         returnInfo.refundStatus = "Processing";
+//         returnInfo.refundAmount = refundAmountBase;
+//       } catch (razorpayError) {
+//         console.error("Razorpay refund error:", razorpayError);
+//         return res
+//           .status(400)
+//           .json(
+//             apiResponse(
+//               400,
+//               `Failed to process refund: ${razorpayError.message}`,
+//               null
+//             )
+//           );
+//       }
+//     } else {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Refunds are only applicable for online paid orders or COD",
+//             null
+//           )
+//         );
+//     }
+
+//     // Update order detail
+//     orderDetail.isReturn = true;
+//     orderDetail.returnInfo = returnInfo;
+
+//     // Update order status
+//     order.orderStatus = "Returned";
+
+//     await order.save();
+
+//     // Populate order details
+//     const enrichedOrder = await populateOrderDetails(order, userId);
+
+//     return res
+//       .status(200)
+//       .json(
+//         apiResponse(200, "Return and refund request initiated successfully", {
+//           order: enrichedOrder,
+//         })
+//       );
+//   } catch (error) {
+//     console.error("Error processing return and refund:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(
+//           500,
+//           error.message || "Error while processing return and refund",
+//           null
+//         )
+//       );
+//   }
+// };
+
+// // Return and Exchange Controller
+// exports.returnAndExchange = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const {
+//       orderId,
+//       itemId,
+//       exchangeReason,
+//       exchangeSpecificReason,
+//       pickupLocationId,
+//       color,
+//       size,
+//       skuId,
+//     } = req.body;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       return res.status(400).json(apiResponse(400, "Invalid userId", null));
+//     }
+
+//     // Validate required fields
+//     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid orderId is required", null));
+//     }
+
+//     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid itemId is required", null));
+//     }
+
+//     if (
+//       !pickupLocationId ||
+//       !mongoose.Types.ObjectId.isValid(pickupLocationId)
+//     ) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid pickupLocationId is required", null));
+//     }
+
+//     if (
+//       !exchangeReason ||
+//       ![
+//         "Size too small",
+//         "Size too big",
+//         "Don't like the fit",
+//         "Don't like the quality",
+//         "Not same as the catalogue",
+//         "Product is damaged",
+//         "Wrong product is received",
+//         "Product arrived too late",
+//       ].includes(exchangeReason)
+//     ) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid exchangeReason is required", null));
+//     }
+
+//     if (
+//       !exchangeSpecificReason ||
+//       typeof exchangeSpecificReason !== "string" ||
+//       exchangeSpecificReason.trim() === ""
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(400, "Valid exchangeSpecificReason is required", null)
+//         );
+//     }
+
+//     if (!color || typeof color !== "string" || color.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid color is required", null));
+//     }
+
+//     if (!size || typeof size !== "string" || size.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid size is required", null));
+//     }
+
+//     if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, "Valid skuId is required", null));
+//     }
+
+//     // Find the order
+//     const order = await UserOrder.findOne({ orderId, userId });
+//     if (!order) {
+//       return res.status(404).json(apiResponse(404, "Order not found", null));
+//     }
+
+//     // Check if order is eligible for exchange
+//     if (order.orderStatus !== "Delivered") {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Order must be in Delivered status to initiate an exchange",
+//             null
+//           )
+//         );
+//     }
+
+//     // Find the specific order detail
+//     const orderDetail = order.orderDetails.find(
+//       (detail) => detail.itemId.toString() === itemId.toString()
+//     );
+//     if (!orderDetail) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "Item not found in order details", null));
+//     }
+
+//     // Check if a return or exchange request already exists
+//     if (
+//       orderDetail.isReturn ||
+//       (orderDetail.returnInfo &&
+//         orderDetail.returnInfo.refundStatus &&
+//         orderDetail.returnInfo.refundStatus !== "Completed")
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "A return request is already in progress for this item",
+//             null
+//           )
+//         );
+//     }
+//     if (
+//       orderDetail.isExchange ||
+//       (orderDetail.exchangeInfo &&
+//         orderDetail.exchangeInfo.exchangeStatus &&
+//         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+//     ) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "An exchange request is already in progress for this item",
+//             null
+//           )
+//         );
+//     }
+
+//     // Validate pickupLocationId
+//     const addressExists = await UserAddress.findOne({
+//       userId,
+//       "addressDetail._id": pickupLocationId,
+//     });
+//     if (!addressExists) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "Pickup address not found", null));
+//     }
+
+//     // Validate the requested product variant
+//     const item = await Item.findById(orderDetail.itemId);
+//     if (!item) {
+//       return res
+//         .status(404)
+//         .json(
+//           apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+//         );
+//     }
+
+//     const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId });
+//     if (!itemDetail) {
+//       return res
+//         .status(404)
+//         .json(apiResponse(404, "Item details not found", null));
+//     }
+
+//     // Validate color, size, and skuId
+//     const colorEntry = itemDetail.imagesByColor.find(
+//       (entry) => entry.color.toLowerCase() === color.toLowerCase()
+//     );
+//     if (!colorEntry) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(400, `Color ${color} not available for this item`, null)
+//         );
+//     }
+
+//     const sizeEntry = colorEntry.sizes.find(
+//       (s) => s.size === size && s.skuId === skuId
+//     );
+//     if (!sizeEntry) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             `Size ${size} or skuId ${skuId} not available for color ${color}`,
+//             null
+//           )
+//         );
+//     }
+
+//     // Check stock availability
+//     if (sizeEntry.stock <= 0) {
+//       return res
+//         .status(400)
+//         .json(apiResponse(400, `Requested size ${size} is out of stock`, null));
+//     }
+
+//     // Validate price
+//     const originalPrice = item.discountedPrice || item.MRP;
+//     const newPrice = originalPrice;
+//     if (originalPrice !== newPrice) {
+//       return res
+//         .status(400)
+//         .json(
+//           apiResponse(
+//             400,
+//             "Exchange is only allowed for products with the same price",
+//             null
+//           )
+//         );
+//     }
+
+//     // Initialize exchange info
+//     const exchangeInfo = {
+//       exchangeReason,
+//       exchangeSpecificReason,
+//       color,
+//       size,
+//       skuId,
+//       isSizeAvailability: true,
+//       requestDate: new Date(),
+//       pickupLocationId,
+//       exchangeStatus: "Initiated",
+//     };
+
+//     // Update order detail
+//     orderDetail.isExchange = true;
+//     orderDetail.exchangeInfo = exchangeInfo;
+
+//     // Update order status
+//     order.orderStatus = "Returned";
+
+//     await order.save();
+
+//     // Populate order details
+//     const enrichedOrder = await populateOrderDetails(order, userId);
+
+//     return res
+//       .status(200)
+//       .json(
+//         apiResponse(200, "Exchange request initiated successfully", {
+//           order: enrichedOrder,
+//         })
+//       );
+//   } catch (error) {
+//     console.error("Error processing return and exchange:", error.message);
+//     return res
+//       .status(500)
+//       .json(
+//         apiResponse(
+//           500,
+//           error.message || "Error while processing return and exchange",
+//           null
+//         )
+//       );
+//   }
+// };
+
+
 const mongoose = require("mongoose");
 const UserOrder = require("../../models/User/UserOrder");
-const ItemDetail = require("../../models/Items/ItemDetail");
+const UserCart = require("../../models/User/UserCart");
 const UserAddress = require("../../models/User/UserAddress");
+const Item = require("../../models/Items/Item");
+const ItemDetail = require("../../models/Items/ItemDetail");
+const User = require("../../models/User/User");
 const { apiResponse } = require("../../utils/apiResponse");
 const razorpay = require("../../config/razorpay");
 const crypto = require("crypto");
 
-// Utility to populate order fields
-const populateOrder = (query) =>
-  query
-    .populate("userId", "name email")
-    .populate("orderDetails.itemId", "name price")
-    .populate("cancelStatus.itemId", "name price")
-    .populate("refund.itemId", "name price")
-    .populate("returnAndRefund.itemId", "name price")
-    .populate("exchange.itemId", "name price")
-    .populate("shippingAddressId", "address city state country postalCode")
-    .populate(
-      "returnAndRefund.pickupLocationId",
-      "address city state country postalCode"
-    )
-    .populate(
-      "exchange.pickupLocationId",
-      "address city state country postalCode"
+// Function to populate order details
+const populateOrderDetails = async (orders, userId) => {
+  try {
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw new Error("Invalid userId");
+    }
+
+    // Convert single order to array if not already
+    const ordersArray = Array.isArray(orders) ? orders : [orders];
+
+    // Populate user details (name, email, phone, role)
+    const populatedOrders = await UserOrder.populate(ordersArray, {
+      path: "userId",
+      model: User,
+      select: "name email phone role",
+    });
+
+    // Enrich orders with item details, shipping address, and pickup location
+    const enrichedOrders = await Promise.all(
+      populatedOrders.map(async (order) => {
+        // Populate itemId in orderDetails with name, description, MRP, discountedPrice
+        const populatedOrder = await UserOrder.populate(order, {
+          path: "orderDetails.itemId",
+          model: Item,
+          select: "name description MRP discountedPrice",
+        });
+
+        // Initialize shippingAddress and pickupLocation
+        let shippingAddress = null;
+        let pickupLocation = null;
+
+        // Fetch shippingAddressId from UserAddress
+        if (
+          order.shippingAddressId &&
+          mongoose.Types.ObjectId.isValid(order.shippingAddressId)
+        ) {
+          try {
+            const userAddress = await UserAddress.findOne({
+              userId: order.userId._id,
+              "addressDetail._id": order.shippingAddressId,
+            });
+            if (userAddress) {
+              const matchedAddress = userAddress.addressDetail.find(
+                (addr) =>
+                  addr._id.toString() === order.shippingAddressId.toString()
+              );
+              if (matchedAddress) {
+                shippingAddress = {
+                  _id: matchedAddress._id,
+                  name: matchedAddress.name,
+                  phoneNumber: matchedAddress.phoneNumber,
+                  email: matchedAddress.email,
+                  pincode: matchedAddress.pincode,
+                  addressLine1: matchedAddress.addressLine1,
+                  addressLine2: matchedAddress.addressLine2 || "",
+                  cityTown: matchedAddress.cityTown,
+                  state: matchedAddress.state,
+                  country: matchedAddress.country,
+                  addressType: matchedAddress.addressType,
+                  isDefault: matchedAddress.isDefault,
+                };
+              }
+            }
+          } catch (error) {
+            console.error(
+              `[populateOrderDetails] Error fetching shippingAddressId ${order.shippingAddressId} for order ${order.orderId}:`,
+              error.message
+            );
+          }
+        }
+
+        // Enrich orderDetails with image from ItemDetail based on itemId, color, size, and skuId
+        const enrichedOrderDetails = await Promise.all(
+          populatedOrder.orderDetails.map(async (detail) => {
+            let image = null;
+
+            // Fetch image from ItemDetail
+            try {
+              const itemDetail = await ItemDetail.findOne({
+                itemId: detail.itemId._id,
+              });
+              if (itemDetail) {
+                const colorEntry = itemDetail.imagesByColor.find(
+                  (entry) =>
+                    entry.color.toLowerCase() === detail.color.toLowerCase()
+                );
+                if (colorEntry) {
+                  const sizeEntry = colorEntry.sizes.find(
+                    (s) => s.size === detail.size && s.skuId === detail.skuId
+                  );
+                  if (sizeEntry && colorEntry.images && colorEntry.images.length > 0) {
+                    // Get the image with the highest priority (lowest priority number)
+                    const sortedImages = colorEntry.images.sort(
+                      (a, b) => (a.priority || 0) - (b.priority || 0)
+                    );
+                    image = sortedImages[0]?.url || null;
+                  }
+                }
+              }
+            } catch (error) {
+              console.error(
+                `[populateOrderDetails] Error fetching image for itemId ${detail.itemId._id}, color ${detail.color}, size ${detail.size}, skuId ${detail.skuId}:`,
+                error.message
+              );
+            }
+
+            // Fetch pickupLocationId for returnInfo
+            if (
+              detail.returnInfo &&
+              detail.returnInfo.pickupLocationId &&
+              mongoose.Types.ObjectId.isValid(detail.returnInfo.pickupLocationId)
+            ) {
+              try {
+                const userAddress = await UserAddress.findOne({
+                  userId: order.userId._id,
+                  "addressDetail._id": detail.returnInfo.pickupLocationId,
+                });
+                if (userAddress) {
+                  const matchedAddress = userAddress.addressDetail.find(
+                    (addr) =>
+                      addr._id.toString() ===
+                      detail.returnInfo.pickupLocationId.toString()
+                  );
+                  if (matchedAddress) {
+                    pickupLocation = {
+                      _id: matchedAddress._id,
+                      name: matchedAddress.name,
+                      phoneNumber: matchedAddress.phoneNumber,
+                      email: matchedAddress.email,
+                      pincode: matchedAddress.pincode,
+                      addressLine1: matchedAddress.addressLine1,
+                      addressLine2: matchedAddress.addressLine2 || "",
+                      cityTown: matchedAddress.cityTown,
+                      state: matchedAddress.state,
+                      country: matchedAddress.country,
+                      addressType: matchedAddress.addressType,
+                      isDefault: matchedAddress.isDefault,
+                    };
+                    detail.returnInfo.pickupLocationId = pickupLocation;
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `[populateOrderDetails] Error fetching pickupLocationId ${detail.returnInfo.pickupLocationId} for order ${order.orderId}:`,
+                  error.message
+                );
+              }
+            }
+
+            // Fetch pickupLocationId for exchangeInfo
+            if (
+              detail.exchangeInfo &&
+              detail.exchangeInfo.pickupLocationId &&
+              mongoose.Types.ObjectId.isValid(detail.exchangeInfo.pickupLocationId)
+            ) {
+              try {
+                const userAddress = await UserAddress.findOne({
+                  userId: order.userId._id,
+                  "addressDetail._id": detail.exchangeInfo.pickupLocationId,
+                });
+                if (userAddress) {
+                  const matchedAddress = userAddress.addressDetail.find(
+                    (addr) =>
+                      addr._id.toString() ===
+                      detail.exchangeInfo.pickupLocationId.toString()
+                  );
+                  if (matchedAddress) {
+                    pickupLocation = {
+                      _id: matchedAddress._id,
+                      name: matchedAddress.name,
+                      phoneNumber: matchedAddress.phoneNumber,
+                      email: matchedAddress.email,
+                      pincode: matchedAddress.pincode,
+                      addressLine1: matchedAddress.addressLine1,
+                      addressLine2: matchedAddress.addressLine2 || "",
+                      cityTown: matchedAddress.cityTown,
+                      state: matchedAddress.state,
+                      country: matchedAddress.country,
+                      addressType: matchedAddress.addressType,
+                      isDefault: matchedAddress.isDefault,
+                    };
+                    detail.exchangeInfo.pickupLocationId = pickupLocation;
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `[populateOrderDetails] Error fetching pickupLocationId ${detail.exchangeInfo.pickupLocationId} for order ${order.orderId}:`,
+                  error.message
+                );
+              }
+            }
+
+            // Return enriched detail
+            return {
+              ...detail.toObject(),
+              itemId: {
+                _id: detail.itemId._id,
+                name: detail.itemId.name,
+                description: detail.itemId.description,
+                MRP: detail.itemId.MRP,
+                discountedPrice: detail.itemId.discountedPrice,
+                image, // Image from ItemDetail
+              },
+              returnInfo: detail.returnInfo
+                ? {
+                    ...detail.returnInfo.toObject(),
+                    pickupLocationId: detail.returnInfo.pickupLocationId,
+                  }
+                : null,
+              exchangeInfo: detail.exchangeInfo
+                ? {
+                    ...detail.exchangeInfo.toObject(),
+                    pickupLocationId: detail.exchangeInfo.pickupLocationId,
+                  }
+                : null,
+            };
+          })
+        );
+
+        // Return enriched order
+        return {
+          ...populatedOrder.toObject(),
+          shippingAddressId: shippingAddress,
+          orderDetails: enrichedOrderDetails,
+        };
+      })
     );
 
-// Create Order Controller
-exports.createOrder = async (req, res) => {
+    // Return single order or array based on input
+    return Array.isArray(orders) ? enrichedOrders : enrichedOrders[0];
+  } catch (error) {
+    console.error("Error populating order details:", error.message);
+    throw error;
+  }
+};
+
+// Create Order Controller (unchanged)
+exports.createUserOrder = async (req, res) => {
   try {
     const { userId } = req.user;
     const {
@@ -42,20 +2966,30 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
 
-    // Validate required fields for all orders
-    if (!orderDetails || !Array.isArray(invoice) || invoice.length === 0) {
+    // Validate required fields
+    if (
+      !orderDetails ||
+      !Array.isArray(orderDetails) ||
+      orderDetails.length === 0
+    ) {
       return res
         .status(400)
         .json(
           apiResponse(
             400,
-            "orderDetails and non-empty invoice array are required",
+            "orderDetails array is required and cannot be empty",
             null
           )
         );
     }
 
-    // Validate invoice array entries
+    if (!Array.isArray(invoice) || invoice.length === 0) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Non-empty invoice array is required", null));
+    }
+
+    // Validate invoice entries
     for (const entry of invoice) {
       if (
         !entry.key ||
@@ -94,131 +3028,6 @@ exports.createOrder = async (req, res) => {
         );
     }
 
-    // Validate orderDetails array
-    if (!Array.isArray(orderDetails) || orderDetails.length === 0) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "orderDetails array is required and cannot be empty",
-            null
-          )
-        );
-    }
-
-    // Validate each item in the orderDetails array and check against ItemDetail
-    for (const item of orderDetails) {
-      // Validate itemId
-      if (!item.itemId || !mongoose.Types.ObjectId.isValid(item.itemId)) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(400, "Valid itemId is required for all items", null)
-          );
-      }
-
-      // Validate color, size, skuId, and quantity
-      if (
-        !item.color ||
-        !item.size ||
-        !item.skuId ||
-        !item.quantity ||
-        item.quantity < 1
-      ) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              "Color, size, skuId, and valid quantity are required for all items",
-              null
-            )
-          );
-      }
-
-      // Fetch ItemDetail by itemId
-      const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
-      if (!itemDetail) {
-        return res
-          .status(404)
-          .json(
-            apiResponse(
-              404,
-              `ItemDetail not found for itemId: ${item.itemId}`,
-              null
-            )
-          );
-      }
-
-      // Check if color, size, and skuId match an entry in imagesByColor
-      const colorEntry = itemDetail.imagesByColor.find(
-        (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
-      );
-      if (!colorEntry) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Color ${item.color} not available for itemId: ${item.itemId}`,
-              null
-            )
-          );
-      }
-
-      const sizeEntry = colorEntry.sizes.find(
-        (size) => size.size === item.size && size.skuId === item.skuId
-      );
-      if (!sizeEntry) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Size ${item.size} or skuId ${item.skuId} not available for color ${item.color} in itemId: ${item.itemId}`,
-              null
-            )
-          );
-      }
-
-      // Check stock availability
-      if (sizeEntry.stock < item.quantity) {
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Insufficient stock for itemId: ${item.itemId}, size: ${item.size}`,
-              null
-            )
-          );
-      }
-
-      // Reduce stock
-      sizeEntry.stock -= item.quantity;
-      await itemDetail.save();
-    }
-
-    // Validate shippingAddressId if provided
-    if (shippingAddressId) {
-      if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
-        return res
-          .status(400)
-          .json(apiResponse(400, "Invalid shippingAddressId", null));
-      }
-      // Check if shippingAddressId exists in UserAddress
-      const addressExists = await UserAddress.findOne({
-        userId,
-        "addressDetail._id": shippingAddressId,
-      });
-      if (!addressExists) {
-        return res
-          .status(404)
-          .json(apiResponse(404, "Shipping address not found", null));
-      }
-    }
-
     // Validate payment method
     if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
       return res
@@ -232,6 +3041,101 @@ exports.createOrder = async (req, res) => {
         );
     }
 
+    // Validate shippingAddressId if provided
+    if (shippingAddressId) {
+      if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "Invalid shippingAddressId", null));
+      }
+      const addressExists = await UserAddress.findOne({
+        userId,
+        "addressDetail._id": shippingAddressId,
+      });
+      if (!addressExists) {
+        return res
+          .status(404)
+          .json(apiResponse(404, "Shipping address not found", null));
+      }
+    }
+
+    // Validate orderDetails against UserCart
+    const userCart = await UserCart.findOne({ userId });
+    if (!userCart) {
+      return res
+        .status(404)
+        .json(apiResponse(404, "User cart not found", null));
+    }
+
+    for (const orderItem of orderDetails) {
+      if (
+        !orderItem.itemId ||
+        !mongoose.Types.ObjectId.isValid(orderItem.itemId)
+      ) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "Valid itemId is required", null));
+      }
+      if (
+        !orderItem.quantity ||
+        typeof orderItem.quantity !== "number" ||
+        orderItem.quantity < 1
+      ) {
+        return res
+          .status(400)
+          .json(
+            apiResponse(400, "Valid quantity (minimum 1) is required", null)
+          );
+      }
+      if (
+        !orderItem.size ||
+        typeof orderItem.size !== "string" ||
+        orderItem.size.trim() === ""
+      ) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "Valid size is required", null));
+      }
+      if (
+        !orderItem.color ||
+        typeof orderItem.color !== "string" ||
+        orderItem.color.trim() === ""
+      ) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "Valid color is required", null));
+      }
+      if (
+        !orderItem.skuId ||
+        typeof orderItem.skuId !== "string" ||
+        orderItem.skuId.trim() === ""
+      ) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "Valid skuId is required", null));
+      }
+
+      // Check if item exists in UserCart
+      const cartItem = userCart.items.find(
+        (item) =>
+          item.itemId.toString() === orderItem.itemId.toString() &&
+          item.size === orderItem.size &&
+          item.color === orderItem.color &&
+          item.skuId === orderItem.skuId
+      );
+      if (!cartItem) {
+        return res
+          .status(404)
+          .json(
+            apiResponse(
+              404,
+              `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`,
+              null
+            )
+          );
+      }
+    }
+
     // Generate unique orderId
     const orderId = `ORD-${Date.now()}-${Math.random()
       .toString(36)
@@ -243,12 +3147,13 @@ exports.createOrder = async (req, res) => {
       userId,
       orderDetails: orderDetails.map((item) => ({
         itemId: item.itemId,
-        color: item.color,
-        size: item.size,
         quantity: item.quantity,
+        size: item.size,
+        color: item.color,
         skuId: item.skuId,
-        isItemCancel: false,
-        isItemExchange: false,
+        addedAt: new Date(),
+        isReturn: false,
+        isExchange: false,
       })),
       invoice: invoice.map((entry) => ({
         key: entry.key.trim().toLowerCase(),
@@ -263,10 +3168,6 @@ exports.createOrder = async (req, res) => {
       razorpayOrderId: null,
       razorpayPaymentId: null,
       razorpaySignature: null,
-      cancelStatus: [],
-      refund: [],
-      returnAndRefund: [],
-      exchange: [],
       isOrderCancelled: false,
       deliveryDate: null,
     };
@@ -275,19 +3176,7 @@ exports.createOrder = async (req, res) => {
     if (paymentMethod === "COD") {
       orderData.isOrderPlaced = true;
       orderData.orderStatus = "Confirmed";
-      orderData.paymentStatus = "Pending"; // COD is pending until delivery
-      // Reduce stock immediately after order placement for COD
-      for (const item of orderDetails) {
-        const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
-        const colorEntry = itemDetail.imagesByColor.find(
-          (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
-        );
-        const sizeEntry = colorEntry.sizes.find(
-          (size) => size.size === item.size && size.skuId === item.skuId
-        );
-        sizeEntry.stock -= item.quantity;
-        await itemDetail.save();
-      }
+      orderData.paymentStatus = "Pending";
     } else if (paymentMethod === "Online") {
       const options = {
         amount: totalAmount * 100, // Convert to paise
@@ -295,206 +3184,171 @@ exports.createOrder = async (req, res) => {
         receipt: `receipt_${Date.now()}`,
         payment_capture: 1,
       };
-      // Create Razorpay Order
       const order = await razorpay.orders.create(options);
       orderData.razorpayOrderId = order.id;
     }
 
-    // Create new order
+    // Create and save new order
     const newOrder = new UserOrder(orderData);
-
-    // Save the order
     const savedOrder = await newOrder.save();
 
-    // Populate referenced fields for response
-    const populatedOrder = await populateOrder(
-      UserOrder.findById(savedOrder._id)
+    // Remove cart items that were ordered
+    userCart.items = userCart.items.filter(
+      (cartItem) =>
+        !orderDetails.some(
+          (orderItem) =>
+            orderItem.itemId.toString() === cartItem.itemId.toString() &&
+            orderItem.size === cartItem.size &&
+            orderItem.color === cartItem.color &&
+            orderItem.skuId === cartItem.skuId
+        )
     );
+    await userCart.save();
 
-    return res.status(201).json(
-      apiResponse(201, "Order created successfully", {
-        order: populatedOrder,
-      })
-    );
+    return res
+      .status(201)
+      .json(apiResponse(201, "Order created successfully", savedOrder));
   } catch (error) {
     console.error("Error creating order:", error.message);
     return res
-      .status(400)
+      .status(500)
       .json(
-        apiResponse(400, error.message || "Error while creating order", null)
+        apiResponse(500, error.message || "Error while creating order", null)
       );
   }
 };
 
-// Verify Payment Controller
+// Verify Payment Controller (unchanged)
 exports.verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+      req.body;
 
+    // Validate required fields
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Missing required payment details", null));
+    }
+
+    // Verify Razorpay signature
     const body = razorpay_order_id + "|" + razorpay_payment_id;
-
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest("hex");
 
     if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ success: false, message: "Invalid signature" });
+      return res.status(400).json(apiResponse(400, "Invalid signature", null));
     }
 
-    // Update Order Payment Status
-    let userOrder = await UserOrder.findOneAndUpdate(
+    // Update order with payment details
+    const userOrder = await UserOrder.findOneAndUpdate(
       { razorpayOrderId: razorpay_order_id },
       {
         $set: {
           paymentStatus: "Paid",
           razorpayPaymentId: razorpay_payment_id,
           razorpaySignature: razorpay_signature,
+          isOrderPlaced: true,
+          orderStatus: "Confirmed",
         },
       },
       { new: true }
     );
 
     if (!userOrder) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json(apiResponse(404, "Order not found", null));
     }
 
-    // Reduce stock after payment verification
-    for (const item of userOrder.orderDetails) {
-      const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
-      const colorEntry = itemDetail.imagesByColor.find(
-        (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
-      );
-      const sizeEntry = colorEntry.sizes.find(
-        (size) => size.size === item.size && size.skuId === item.skuId
-      );
-      sizeEntry.stock -= item.quantity;
-      await itemDetail.save();
-    }
-
-    return res.status(200).json({ success: true, message: "Payment verified successfully" });
+    return res
+      .status(200)
+      .json(apiResponse(200, "Payment verified successfully", userOrder));
   } catch (error) {
     console.error("Error verifying payment:", error.message);
-    return res.status(400).json({ success: false, message: error.message });
+    return res
+      .status(500)
+      .json(apiResponse(500, error.message || "Error verifying payment", null));
   }
 };
-
-
-
 
 // Fetch All User Orders Controller
 exports.fetchUserOrders = async (req, res) => {
   try {
     const { userId } = req.user;
-    const { page = 1, limit = 10 } = req.query;
 
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
 
-    // Validate pagination parameters
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    if (pageNum < 1 || limitNum < 1) {
-      return res.status(400).json(apiResponse(400, "Page and limit must be positive numbers", null));
+    // Fetch orders
+    let orders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+
+    if (!orders || orders.length === 0) {
+      return res
+        .status(200)
+        .json(apiResponse(200, "No user orders found", []));
     }
 
-    // Fetch orders and populate referenced fields
-    const orders = await populateOrder(
-      UserOrder.find({ userId })
-        .sort({ createdAt: -1 })
-        .skip((pageNum - 1) * limitNum)
-        .limit(limitNum)
-    );
-
-    const total = await UserOrder.countDocuments({ userId });
-
-    // Prepare response data
-    const responseData = {
-      orders,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
-    };
+    // Populate order details
+    const enrichedOrders = await populateOrderDetails(orders, userId);
 
     return res
       .status(200)
-      .json(apiResponse(200, "User orders fetched successfully", responseData));
+      .json(apiResponse(200, "User orders fetched successfully", enrichedOrders));
   } catch (error) {
     console.error("Error fetching user orders:", error.message);
     return res
       .status(500)
-      .json(apiResponse(500, error.message || "Server error while fetching user orders", null));
+      .json(
+        apiResponse(
+          500,
+          error.message || "Server error while fetching user orders",
+          null
+        )
+      );
   }
 };
 
 // Fetch Confirmed User Orders Controller
 exports.fetchConfirmedUserOrders = async (req, res) => {
   try {
-    // Check if user info exists
-    if (!req.user || !req.user.userId) {
-      return res.status(401).json(apiResponse(401, "Unauthorized", null));
-    }
-
     const { userId } = req.user;
-    const { page = 1, limit = 10 } = req.query;
 
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
 
-    // Fetch orders with orderStatus: "Confirmed"
-    const orders = await UserOrder.find({ userId, orderStatus: "Confirmed" })
-      .populate("orderDetails.itemId", "name description")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
-
-    const total = await UserOrder.countDocuments({
-      userId,
-      orderStatus: "Confirmed",
+    // Fetch orders
+    let orders = await UserOrder.find({ userId, orderStatus: "Confirmed" }).sort({
+      createdAt: -1,
     });
 
-    // Optional: Handle no orders
-    if (orders.length === 0) {
-      return res.status(200).json(
-        apiResponse(200, "No confirmed orders found", {
-          orders: [],
-          pagination: {
-            page: Number(page),
-            limit: Number(limit),
-            total,
-            pages: Math.ceil(total / limit),
-          },
-        })
-      );
+    // Handle no orders
+    if (!orders || orders.length === 0) {
+      return res
+        .status(200)
+        .json(apiResponse(200, "No confirmed orders found", []));
     }
 
-    // Send response
-    return res.status(200).json(
-      apiResponse(200, "Confirmed user orders fetched successfully", {
-        orders,
-        pagination: {
-          page: Number(page),
-          limit: Number(limit),
-          total,
-          pages: Math.ceil(total / limit),
-        },
-      })
-    );
+    // Populate order details
+    const enrichedOrders = await populateOrderDetails(orders, userId);
+
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, "Confirmed user orders fetched successfully", enrichedOrders)
+      );
   } catch (error) {
-    console.error("Error fetching confirmed user orders:", error);
+    console.error("Error fetching confirmed user orders:", error.message);
     return res
       .status(500)
       .json(
         apiResponse(
           500,
-          "Server error while fetching confirmed user orders",
+          error.message || "Server error while fetching confirmed user orders",
           null
         )
       );
@@ -519,10 +3373,8 @@ exports.fetchOrderByOrderId = async (req, res) => {
         .json(apiResponse(400, "Valid orderId is required", null));
     }
 
-    // Fetch the specific order by userId and orderId
-    const specificOrder = await populateOrder(
-      UserOrder.findOne({ userId, orderId })
-    );
+    // Fetch the specific order
+    let specificOrder = await UserOrder.findOne({ userId, orderId });
 
     // If specific order not found, return 404
     if (!specificOrder) {
@@ -531,10 +3383,12 @@ exports.fetchOrderByOrderId = async (req, res) => {
         .json(apiResponse(404, "Order not found for this user", null));
     }
 
-    // Fetch all orders for the user
-    const allOrders = await populateOrder(
-      UserOrder.find({ userId }).sort({ createdAt: -1 })
-    );
+    // Populate specific order details
+    specificOrder = await populateOrderDetails(specificOrder, userId);
+
+    // Fetch all orders and populate
+    let allOrders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+    allOrders = await populateOrderDetails(allOrders, userId);
 
     // Prepare response data
     const responseData = {
@@ -552,330 +3406,720 @@ exports.fetchOrderByOrderId = async (req, res) => {
         )
       );
   } catch (error) {
-    console.error("Error fetching order and user orders:", error);
+    console.error("Error fetching order and user orders:", error.message);
     return res
       .status(500)
       .json(
         apiResponse(
           500,
-          "Server error while fetching order and user orders",
+          error.message || "Error while fetching order and user orders",
           null
         )
       );
   }
 };
 
-
-
-// Cancel Specific Item in Order Controller
+// Cancel Order Controller
 exports.cancelOrder = async (req, res) => {
   try {
     const { userId } = req.user;
-    const { orderId, itemId } = req.body;  // We now accept itemId to cancel a specific item
+    const { orderId } = req.body;
 
-    // Validate orderId and itemId
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
-      return apiResponse(res, 400, "Invalid order ID");
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
 
-    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
-      return apiResponse(res, 400, "Invalid item ID");
+    // Validate orderId
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid orderId is required", null));
     }
 
-    // Find the order by orderId and userId
-    const order = await UserOrder.findOne({ orderId:orderId, userId });
-
+    // Find the order
+    const order = await UserOrder.findOne({ orderId, userId });
     if (!order) {
-      return apiResponse(res, 404, "Order not found");
+      return res.status(404).json(apiResponse(404, "Order not found", null));
     }
 
-    // Check if order is already cancelled or delivered
-    if (order.isOrderCancelled || order.orderStatus === "Delivered") {
-      return apiResponse(res, 400, "Order already cancelled or delivered");
+    // Check if order is already cancelled
+    if (order.isOrderCancelled) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Order is already cancelled", null));
     }
 
-    // Find the item within the order that matches the itemId
-    const itemToCancel = order.orderDetails.find(item => item.itemId.toString() === itemId.toString());
-
-    if (!itemToCancel) {
-      return apiResponse(res, 404, "Item not found in the order");
+    // Check if order can be cancelled (only before "Dispatched")
+    const nonCancellableStatuses = ["Dispatched", "Delivered", "Returned"];
+    if (nonCancellableStatuses.includes(order.orderStatus)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`,
+            null
+          )
+        );
     }
 
-    // Handle cancellation logic based on the payment method
+    // Calculate total refund amount based on item prices
+    let totalRefundAmount = 0;
+    for (const detail of order.orderDetails) {
+      const item = await Item.findById(detail.itemId);
+      if (!item) {
+        return res
+          .status(404)
+          .json(
+            apiResponse(404, `Item with ID ${detail.itemId} not found`, null)
+          );
+      }
+
+      const itemPrice = item.discountedPrice || item.MRP;
+      const quantity = detail.quantity || 1;
+      totalRefundAmount += itemPrice * quantity;
+    }
+
+    // Update order status and cancellation flag
+    order.orderStatus = "Cancelled";
+    order.isOrderCancelled = true;
+
+    // Handle refund logic based on payment method
     if (order.paymentMethod === "COD") {
-      // For COD orders, simply update the status of the item and the order status if needed
-      itemToCancel.isItemCancel = true;
-
-      // Check if all items are cancelled to update order status to 'Cancelled' or 'Partiallycancelled'
-      const allItemsCancelled = order.orderDetails.every(item => item.isItemCancel);
-
-      if (allItemsCancelled) {
-        order.orderStatus = "Cancelled";
-        order.isOrderCancelled = true;
-      } else {
-        order.orderStatus = "Partiallycancelled";  // If not all items are cancelled, set the status to Partiallycancelled
-      }
-
-      // Save the updated order with cancelled item
-      await order.save();
-
-      return apiResponse(res, 200, "Item cancelled successfully");
-    }
-
-    if (order.paymentMethod === "Online" && order.paymentStatus === "Paid") {
-      // For Online orders, perform the refund via Razorpay
-
-      // Check if Razorpay Payment ID exists before processing the refund
-      if (!order.razorpayPaymentId) {
-        return apiResponse(res, 400, "Payment not found for the order");
-      }
-
-      //Pending
-      // Calculate refund amount for the cancelled item(s)
-      const refundAmount = itemToCancel.quantity * itemToCancel.price * 100;  // Refund amount is in paise
-
-      // Create a refund for the cancelled item(s)
-      const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
-        amount: refundAmount, // Refund amount for the specific item
-      });
-
-      // Check the status of the refund
-      if (refund.status !== "processed") {
-        return apiResponse(res, 500, "Refund processing failed");
-      }
-
-      // Mark the specific item as cancelled
-      itemToCancel.isItemCancel = true;
-
-      // Add refund information to the order
-      order.refund.push({
-        itemId: itemToCancel.itemId,
-        refundReason: "Item cancelled",
+      // No refund needed for COD as payment hasn't been made
+      order.refund = {
+        refundReason: "Order cancelled by user (COD)",
         requestDate: new Date(),
-        refundAmount: itemToCancel.quantity * itemToCancel.price,
-        refundTransactionId: refund.payment_id,
-        refundStatus: "initated",
-      });
-
-      // Check if all items are cancelled to update order status to 'Cancelled' or 'Partiallycancelled'
-      const allItemsCancelled = order.orderDetails.every(item => item.isItemCancel);
-
-      if (allItemsCancelled) {
-        order.orderStatus = "Cancelled";
-        order.isOrderCancelled = true;
-      } else {
-        order.orderStatus = "Partiallycancelled";  // If not all items are cancelled, set the status to Partiallycancelled
+      };
+    } else if (
+      order.paymentMethod === "Online" &&
+      order.paymentStatus === "Paid"
+    ) {
+      // Full refund for online paid orders
+      if (!order.razorpayPaymentId) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "No valid Razorpay payment ID found", null));
       }
 
-      // Save the updated order with the specific item cancelled and refund processed
-      await order.save();
+      try {
+        // Process refund with Razorpay
+        const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+          amount: totalRefundAmount * 100, // Convert to paise
+          speed: "normal",
+          notes: {
+            reason: "Order cancelled by user (Online)",
+            orderId: order.orderId,
+          },
+        });
 
-      return apiResponse(res, 200, "Item cancelled and refund processed successfully");
+        // Set refund object with Razorpay refund transaction ID
+        order.refund = {
+          refundReason: "Order cancelled by user (Online)",
+          requestDate: new Date(),
+          refundAmount: totalRefundAmount,
+          refundRazorpayTransactionId: refund.id,
+          refundStatus: "Processing",
+        };
+      } catch (razorpayError) {
+        console.error("Razorpay refund error:", razorpayError);
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              `Failed to process refund: ${razorpayError.message}`,
+              null
+            )
+          );
+      }
+    } else {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "Refunds are only applicable for online paid orders or COD",
+            null
+          )
+        );
     }
 
-    // Handle case if payment status is not 'Paid' for Online orders
-    return apiResponse(res, 400, "Unable to cancel the item. Payment not successful.");
-  } catch (err) {
-    console.error("Error cancelling item in order:", err);
-    return apiResponse(res, 500, "Internal server error");
+    await order.save();
+
+    // Populate order details
+    const enrichedOrder = await populateOrderDetails(order, userId);
+
+    return res
+      .status(200)
+      .json(apiResponse(200, "Order cancelled successfully", enrichedOrder));
+  } catch (error) {
+    console.error("Error cancelling order:", error.message);
+    return res
+      .status(500)
+      .json(
+        apiResponse(500, error.message || "Error while cancelling order", null)
+      );
   }
 };
 
-
-
-exports.returnAndRefund = async (req, res) => {
+// Return and Refund Controller
+exports.returnRefund = async (req, res) => {
   try {
     const { userId } = req.user;
     const {
       orderId,
       itemId,
-      pickupLocationId,
       returnReason,
       specificReturnReason,
+      pickupLocationId,
       bankDetails,
     } = req.body;
 
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
-      return res.status(400).json({ message: "Invalid or missing orderId" });
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, "Invalid userId", null));
     }
+
+    // Validate required fields
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid orderId is required", null));
+    }
+
     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
-      return res.status(400).json({ message: "Invalid or missing itemId" });
-    }
-    if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
-      return res.status(400).json({ message: "Invalid or missing pickupLocationId" });
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid itemId is required", null));
     }
 
-    const order = await UserOrder.findOne({ orderId: orderId, userId });
+    if (
+      !pickupLocationId ||
+      !mongoose.Types.ObjectId.isValid(pickupLocationId)
+    ) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid pickupLocationId is required", null));
+    }
+
+    if (
+      !returnReason ||
+      ![
+        "Size too small",
+        "Size too big",
+        "Don't like the fit",
+        "Don't like the quality",
+        "Not same as the catalogue",
+        "Product is damaged",
+        "Wrong product is received",
+        "Product arrived too late",
+      ].includes(returnReason)
+    ) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid returnReason is required", null));
+    }
+
+    if (
+      !specificReturnReason ||
+      typeof specificReturnReason !== "string" ||
+      specificReturnReason.trim() === ""
+    ) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid specificReturnReason is required", null));
+    }
+
+    // Validate bankDetails
+    if (!bankDetails) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "bankDetails are required", null));
+    }
+
+    const { accountNumber, ifscCode, bankName, accountHolderName } = bankDetails;
+    if (
+      !accountNumber ||
+      typeof accountNumber !== "string" ||
+      accountNumber.trim() === "" ||
+      !ifscCode ||
+      typeof ifscCode !== "string" ||
+      ifscCode.trim() === "" ||
+      !bankName ||
+      typeof bankName !== "string" ||
+      bankName.trim() === "" ||
+      !accountHolderName ||
+      typeof accountHolderName !== "string" ||
+      accountHolderName.trim() === ""
+    ) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, "Complete and valid bankDetails are required", null)
+        );
+    }
+
+    // Find the order
+    const order = await UserOrder.findOne({ orderId, userId });
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json(apiResponse(404, "Order not found", null));
     }
 
+    // Check if order is eligible for return
     if (order.orderStatus !== "Delivered") {
-      return res.status(400).json({ message: "Only delivered orders can be returned" });
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "Order must be in Delivered status to initiate a return",
+            null
+          )
+        );
     }
 
-    const item = order.orderDetails.find(
-      (i) => i.itemId.toString() === itemId.toString()
+    // Find the specific order detail
+    const orderDetail = order.orderDetails.find(
+      (detail) => detail.itemId.toString() === itemId.toString()
     );
+    if (!orderDetail) {
+      return res
+        .status(404)
+        .json(apiResponse(404, "Item not found in order details", null));
+    }
 
+    // Check if a return or exchange request already exists
+    if (
+      orderDetail.isReturn ||
+      (orderDetail.returnInfo &&
+        orderDetail.returnInfo.refundStatus &&
+        orderDetail.returnInfo.refundStatus !== "Completed")
+    ) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "A return request is already in progress for this item",
+            null
+          )
+        );
+    }
+    if (
+      orderDetail.isExchange ||
+      (orderDetail.exchangeInfo &&
+        orderDetail.exchangeInfo.exchangeStatus &&
+        orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+    ) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "An exchange request is already in progress for this item",
+            null
+          )
+        );
+    }
+
+    // Validate pickupLocationId
+    const addressExists = await UserAddress.findOne({
+      userId,
+      "addressDetail._id": pickupLocationId,
+    });
+    if (!addressExists) {
+      return res
+        .status(404)
+        .json(apiResponse(404, "Pickup address not found", null));
+    }
+
+    // Calculate refund amount
+    const item = await Item.findById(orderDetail.itemId);
     if (!item) {
-      return res.status(404).json({ message: "Item not found in order" });
+      return res
+        .status(404)
+        .json(
+          apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+        );
     }
 
-    if (item.isItemReturn) {
-      return res.status(400).json({ message: "Item already returned" });
-    }
+    const itemPrice = item.discountedPrice || item.MRP;
+    const quantity = orderDetail.quantity || 1;
+    const refundAmountBase = itemPrice * quantity;
 
-    // Mark the item as returned
-    item.isItemReturn = true;
-
-    // Calculate refund amount (can be extended for discounts, coupons, etc.)
-    const refundAmount = item.quantity * (item.price || 0); // Adjust as per real pricing logic
-
-    let refundTransactionId = null;
-    let refundStatus = "Initiated";
-
-    // Refund logic based on payment method
-    if (order.paymentMethod === "Online" && order.razorpayPaymentId) {
-      try {
-        const refund = await razorpayInstance.payments.refund(order.razorpayPaymentId, {
-          amount: refundAmount * 100, // Razorpay expects amount in paise
-        });
-
-        refundTransactionId = refund.id;
-        refundStatus = refund.status === "processed" ? "Completed" : "Processing";
-      } catch (err) {
-        return res.status(500).json({ message: "Refund initiation failed via Razorpay", error: err.message });
-      }
-    }
-
-    if (order.paymentMethod === "COD") {
-      if (
-        !bankDetails ||
-        !bankDetails.accountNumber ||
-        !bankDetails.ifscCode ||
-        !bankDetails.accountName ||
-        !bankDetails.branchName
-      ) {
-        return res.status(400).json({ message: "Bank details are required for COD refund" });
-      }
-
-      // Simulate transaction ID generation
-      refundTransactionId = `COD-${Date.now()}`;
-      refundStatus = "Initiated";
-    }
-
-    // Add to returnAndRefund array
-    order.returnAndRefund.push({
-      itemId,
+    // Initialize return info
+    const returnInfo = {
       returnReason,
       specificReturnReason,
       requestDate: new Date(),
       pickupLocationId,
-      returnAndRefundTransactionId: refundTransactionId,
-      bankDetails: order.paymentMethod === "COD" ? bankDetails : undefined,
-      refundStatus,
-    });
+      bankDetails,
+      refundStatus: "Initiated",
+      refundAmount: 0,
+    };
 
-    // Update order status if all items are returned
-    const allReturned = order.orderDetails.every(item => item.isItemReturn);
-    order.orderStatus = allReturned ? "Returned" : "Partiallycancelled";
+    // Handle refund logic
+    if (order.paymentMethod === "COD") {
+      const refundAmount = Math.max(0, refundAmountBase - 50);
+      returnInfo.refundStatus = "Initiated";
+      returnInfo.returnAndRefundTransactionId = `REF-COD-${Date.now()}`; // This could be calculated by the Admin Side
+      returnInfo.refundAmount = refundAmount;
+    } else if (
+      order.paymentMethod === "Online" &&
+      order.paymentStatus === "Paid"
+    ) {
+      if (!order.razorpayPaymentId) {
+        return res
+          .status(400)
+          .json(apiResponse(400, "No valid Razorpay payment ID found", null));
+      }
+
+      try {
+        const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+          amount: refundAmountBase * 100,
+          speed: "normal",
+          notes: {
+            reason: returnReason,
+            specificReason: specificReturnReason,
+            orderId: order.orderId,
+            itemId,
+          },
+        });
+
+        returnInfo.returnAndRefundTransactionId = refund.id;
+        returnInfo.refundStatus = "Processing";
+        returnInfo.refundAmount = refundAmountBase;
+      } catch (razorpayError) {
+        console.error("Razorpay refund error:", razorpayError);
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              `Failed to process refund: ${razorpayError.message}`,
+              null
+            )
+          );
+      }
+    } else {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "Refunds are only applicable for online paid orders or COD",
+            null
+          )
+        );
+    }
+
+    // Update order detail
+    orderDetail.isReturn = true;
+    orderDetail.returnInfo = returnInfo;
+
+    // Update order status
+    order.orderStatus = "Returned";
 
     await order.save();
 
-    return res.status(200).json({ message: "Return and refund initiated successfully." });
+    // Populate order details
+    const enrichedOrder = await populateOrderDetails(order, userId);
+
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, "Return and refund request initiated successfully", {
+          order: enrichedOrder,
+        })
+      );
   } catch (error) {
-    console.error("returnAndRefund error:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("Error processing return and refund:", error.message);
+    return res
+      .status(500)
+      .json(
+        apiResponse(
+          500,
+          error.message || "Error while processing return and refund",
+          null
+        )
+      );
   }
 };
 
-const UserOrder = require("../models/UserOrder");
-const ItemDetail = require("../models/ItemDetail");
-
-exports.exchangeItem = async (req, res) => {
+// Return and Exchange Controller
+exports.returnAndExchange = async (req, res) => {
   try {
+    const { userId } = req.user;
     const {
-      itemId,
       orderId,
-      size,
-      color,
-      pickupLocationId,
+      itemId,
       exchangeReason,
       exchangeSpecificReason,
+      pickupLocationId,
+      color,
+      size,
+      skuId,
     } = req.body;
 
-    const userId = req.user?._id || req.user?.userId; // Fetch userId from req.user
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, "Invalid userId", null));
+    }
 
     // Validate required fields
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid orderId is required", null));
+    }
+
+    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid itemId is required", null));
+    }
+
     if (
-      !itemId ||
-      !orderId ||
-      !size ||
-      !color ||
       !pickupLocationId ||
-      !exchangeReason
+      !mongoose.Types.ObjectId.isValid(pickupLocationId)
     ) {
-      return res.status(400).json({
-        message: "itemId, orderId, size, color, pickupLocationId, and exchangeReason are required.",
-      });
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid pickupLocationId is required", null));
     }
 
-    // Step 1: Check availability in ItemDetail
-    const itemDetail = await ItemDetail.findOne({ itemId });
+    if (
+      !exchangeReason ||
+      ![
+        "Size too small",
+        "Size too big",
+        "Don't like the fit",
+        "Don't like the quality",
+        "Not same as the catalogue",
+        "Product is damaged",
+        "Wrong product is received",
+        "Product arrived too late",
+      ].includes(exchangeReason)
+    ) {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid exchangeReason is required", null));
+    }
 
+    if (
+      !exchangeSpecificReason ||
+      typeof exchangeSpecificReason !== "string" ||
+      exchangeSpecificReason.trim() === ""
+    ) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, "Valid exchangeSpecificReason is required", null)
+        );
+    }
+
+    if (!color || typeof color !== "string" || color.trim() === "") {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid color is required", null));
+    }
+
+    if (!size || typeof size !== "string" || size.trim() === "") {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid size is required", null));
+    }
+
+    if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
+      return res
+        .status(400)
+        .json(apiResponse(400, "Valid skuId is required", null));
+    }
+
+    // Find the order
+    const order = await UserOrder.findOne({ orderId, userId });
+    if (!order) {
+      return res.status(404).json(apiResponse(404, "Order not found", null));
+    }
+
+    // Check if order is eligible for exchange
+    if (order.orderStatus !== "Delivered") {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "Order must be in Delivered status to initiate an exchange",
+            null
+          )
+        );
+    }
+
+    // Find the specific order detail
+    const orderDetail = order.orderDetails.find(
+      (detail) => detail.itemId.toString() === itemId.toString()
+    );
+    if (!orderDetail) {
+      return res
+        .status(404)
+        .json(apiResponse(404, "Item not found in order details", null));
+    }
+
+    // Check if a return or exchange request already exists
+    if (
+      orderDetail.isReturn ||
+      (orderDetail.returnInfo &&
+        orderDetail.returnInfo.refundStatus &&
+        orderDetail.returnInfo.refundStatus !== "Completed")
+    ) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "A return request is already in progress for this item",
+            null
+          )
+        );
+    }
+    if (
+      orderDetail.isExchange ||
+      (orderDetail.exchangeInfo &&
+        orderDetail.exchangeInfo.exchangeStatus &&
+        orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+    ) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "An exchange request is already in progress for this item",
+            null
+          )
+        );
+    }
+
+    // Validate pickupLocationId
+    const addressExists = await UserAddress.findOne({
+      userId,
+      "addressDetail._id": pickupLocationId,
+    });
+    if (!addressExists) {
+      return res
+        .status(404)
+        .json(apiResponse(404, "Pickup address not found", null));
+    }
+
+    // Validate the requested product variant
+    const item = await Item.findById(orderDetail.itemId);
+    if (!item) {
+      return res
+        .status(404)
+        .json(
+          apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+        );
+    }
+
+    const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId });
     if (!itemDetail) {
-      return res.status(404).json({ message: "Item not found." });
+      return res
+        .status(404)
+        .json(apiResponse(404, "Item details not found", null));
     }
 
-    // Find color block
-    const colorBlock = itemDetail.imagesByColor.find(
-      (c) => c.color.toLowerCase() === color.toLowerCase()
+    // Validate color, size, and skuId
+    const colorEntry = itemDetail.imagesByColor.find(
+      (entry) => entry.color.toLowerCase() === color.toLowerCase()
     );
-
-    if (!colorBlock) {
-      return res.status(404).json({ message: "Color not available." });
+    if (!colorEntry) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, `Color ${color} not available for this item`, null)
+        );
     }
 
-    // Find size inside that color block
-    const sizeBlock = colorBlock.sizes.find(
-      (s) => s.size.toLowerCase() === size.toLowerCase() && s.stock > 0
+    const sizeEntry = colorEntry.sizes.find(
+      (s) => s.size === size && s.skuId === skuId
     );
-
-    if (!sizeBlock) {
-      return res.status(404).json({ message: "Size not available or out of stock." });
+    if (!sizeEntry) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            `Size ${size} or skuId ${skuId} not available for color ${color}`,
+            null
+          )
+        );
     }
 
-    // Step 2: Update the UserOrder
-    const updatedOrder = await UserOrder.findOneAndUpdate(
-      { _id: orderId, userId, "orderDetails.itemId": itemId },
-      {
-        $push: {
-          exchange: {
-            itemId,
-            requestDate: new Date(),
-            exchangeReason, // coming from req.body
-            exchangeSpecificReason, // coming from req.body (optional)
-            color,
-            size,
-            skuId: sizeBlock.skuId,
-            isSizeAvailability: true,
-            pickupLocationId,
-            exchangeStatus: "Initiated",
-          },
-        },
-      },
-      { new: true }
-    );
-
-    if (!updatedOrder) {
-      return res.status(404).json({ message: "Order not found for this user or item not found in order." });
+    // Check stock availability
+    if (sizeEntry.stock <= 0) {
+      return res
+        .status(400)
+        .json(apiResponse(400, `Requested size ${size} is out of stock`, null));
     }
 
-    return res.status(200).json({ message: "Exchange initiated successfully.", order: updatedOrder });
+    // Validate price
+    const originalPrice = item.discountedPrice || item.MRP;
+    const newPrice = originalPrice;
+    if (originalPrice !== newPrice) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            "Exchange is only allowed for products with the same price",
+            null
+          )
+        );
+    }
 
+    // Initialize exchange info
+    const exchangeInfo = {
+      exchangeReason,
+      exchangeSpecificReason,
+      color,
+      size,
+      skuId,
+      isSizeAvailability: true,
+      requestDate: new Date(),
+      pickupLocationId,
+      exchangeStatus: "Initiated",
+    };
+
+    // Update order detail
+    orderDetail.isExchange = true;
+    orderDetail.exchangeInfo = exchangeInfo;
+
+    // Update order status
+    order.orderStatus = "Returned";
+
+    await order.save();
+
+    // Populate order details
+    const enrichedOrder = await populateOrderDetails(order, userId);
+
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, "Exchange request initiated successfully", {
+          order: enrichedOrder,
+        })
+      );
   } catch (error) {
-    console.error("Exchange Item Error:", error);
-    res.status(500).json({ message: "Something went wrong.", error: error.message });
+    console.error("Error processing return and exchange:", error.message);
+    return res
+      .status(500)
+      .json(
+        apiResponse(
+          500,
+          error.message || "Error while processing return and exchange",
+          null
+        )
+      );
   }
 };

@@ -26,11 +26,13 @@ exports.verifyToken = async (req, res, next) => {
 
     
   } catch (error) {
-    console.error(error);
+    console.log(error.message)
     if (error.name === "JsonWebTokenError") {
+      console.log("Token is Invalid")
       return res.status(404).json(apiResponse(false, 401, "Token is Invalid"));
     }
     if (error.name === "TokenExpiredError") {
+      console.log("Token has Expired")
       return res.status(404).json(apiResponse(false, 401, "Token has Expired"));
     }
     return res

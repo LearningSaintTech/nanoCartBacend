@@ -141,14 +141,7 @@ exports.removeItemFromCart = async (req, res) => {
 
     // Populate cart for response
     const populatedCart = await UserCart.findById(cart._id)
-    // .populate({
-    //   path: "items.itemId",
-    //   select: "name MRP image categoryId subCategoryId",
-    //   populate: [
-    //     { path: "categoryId", select: "name" },
-    //     { path: "subCategoryId", select: "name" },
-    //   ],
-    // });
+    
 
     return res.status(200).json(apiResponse(200, true, "Item removed from cart", populatedCart));
   } catch (error) {
@@ -162,168 +155,259 @@ exports.removeItemFromCart = async (req, res) => {
 };
 
 
-// Get User's Cart
-// exports.getUserCart = async (req, res) => {
-//   try {
-//     console.log("Starting getUserCart");
-//     const { userId } = req.user;
-
-//     const cart = await UserCart.findOne({ userId })
-//       .populate("items.itemId", "image name description");  // populate only these fields
-
-//     if (!cart || cart.items.length === 0) {
-//       return res.status(200).json(apiResponse(200, true, "Cart is empty", { userId, items: [] }));
-//     }
-
-//     return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", cart));
-//   } catch (error) {
-//     console.error("Get cart error:", {
-//       message: error.message,
-//       stack: error.stack,
-//     });
-//     return res.status(500).json(apiResponse(500, false, error.message));
-//   }
-// };
 
 exports.getUserCart = async (req, res) => {
   try {
     console.log("Starting getUserCart");
     const { userId } = req.user;
 
-    let cart = await UserCart.findOne({ userId })
-      .populate("items.itemId", "image name description");
-
-    if (!cart || cart.items.length === 0) {
-      return res.status(200).json(apiResponse(200, true, "Cart is empty", { userId, items: [] }));
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid userId", null));
     }
 
-    // Now, for each cart item, fetch images from ItemDetail
+    // Fetch cart and populate itemId with name, description, MRP, discountedPrice
+    let cart = await UserCart.findOne({ userId }).populate(
+      "items.itemId",
+      "name description MRP discountedPrice"
+    );
+
+    if (!cart || cart.items.length === 0) {
+      return res
+        .status(200)
+        .json(
+          apiResponse(200, true, "Cart is empty", { userId, items: [] })
+        );
+    }
+
+    // Fetch images from ItemDetail based on itemId, color, size, and skuId
     const updatedItems = await Promise.all(
       cart.items.map(async (item) => {
-        const itemDetail = await ItemDetail.findOne({ itemId: item.itemId._id });
+        let image = null;
 
-        if (itemDetail) {
-          const colorData = itemDetail.imagesByColor.find(colorObj => colorObj.color === item.color);
-          
-          return {
-            ...item.toObject(), // convert mongoose document to plain object
-            images: colorData ? colorData.images : [], // add images field
-          };
-        } else {
-          return {
-            ...item.toObject(),
-            images: [], // if no ItemDetail found
-          };
+        try {
+          const itemDetail = await ItemDetail.findOne({ itemId: item.itemId._id });
+          if (itemDetail) {
+            const colorData = itemDetail.imagesByColor.find(
+              (colorObj) => colorObj.color.toLowerCase() === item.color.toLowerCase()
+            );
+            if (colorData) {
+              const sizeEntry = colorData.sizes.find(
+                (s) => s.size === item.size && s.skuId === item.skuId
+              );
+              if (
+                sizeEntry &&
+                colorData.images &&
+                colorData.images.length > 0
+              ) {
+                // Get the image with the highest priority (lowest priority number)
+                const sortedImages = colorData.images.sort(
+                  (a, b) => (a.priority || 0) - (b.priority || 0)
+                );
+                image = sortedImages[0]?.url || null;
+              }
+            }
+          }
+        } catch (error) {
+          console.error(
+            `[getUserCart] Error fetching image for itemId ${item.itemId._id}, color ${item.color}, size ${item.size}, skuId ${item.skuId}:`,
+            error.message
+          );
         }
+
+        return {
+          ...item.toObject(),
+          itemId: {
+            _id: item.itemId._id,
+            name: item.itemId.name,
+            description: item.itemId.description,
+            MRP: item.itemId.MRP,
+            discountedPrice: item.itemId.discountedPrice,
+            image, // Image from ItemDetail
+          },
+        };
       })
     );
 
     const updatedCart = {
-      ...cart.toObject(), 
+      ...cart.toObject(),
       items: updatedItems,
     };
 
-    return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", updatedCart));
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, true, "Cart fetched successfully", updatedCart)
+      );
   } catch (error) {
     console.error("Get cart error:", {
       message: error.message,
       stack: error.stack,
     });
-    return res.status(500).json(apiResponse(500, false, error.message));
+    return res
+      .status(500)
+      .json(apiResponse(500, false, error.message || "Server error"));
   }
 };
 
 
+// Update Item Quantity in Cart Controller
+exports.updateCartItemQuantity = async (req, res) => {
+  try {
+    console.log("Starting updateCartItemQuantity");
+    console.log("Request body:", req.body);
+    const { userId } = req.user;
+    const { itemId, size, color, skuId, action } = req.body;
 
-// Update Item Quantity in Cart
-  exports.updateCartItemQuantity = async (req, res) => {
-    try {
-      console.log("Starting updateCartItemQuantity");
-      console.log("Request body:", req.body);
-      const { userId } = req.user;
-      const { itemId, size, color, skuId, action } = req.body;
-
-      // Validate required fields
-      if (!itemId || !size || !color || !skuId || !action) {
-        return res.status(400).json(
-          apiResponse(400, false, "itemId, size, color, skuId, and action are required")
+    // Validate required fields
+    if (!itemId || !size || !color || !skuId || !action) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "itemId, size, color, skuId, and action are required"
+          )
         );
-      }
-      if (!mongoose.Types.ObjectId.isValid(itemId)) {
-        return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
-      }
+    }
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
+    }
 
-      // Convert action to lowercase
-      const normalizedAction = action.toLowerCase();
-      if (!["increase", "decrease"].includes(normalizedAction)) {
-        return res.status(400).json(apiResponse(400, false, "Action must be 'increase' or 'decrease'"));
+    // Convert action to lowercase
+    const normalizedAction = action.toLowerCase();
+    if (!["increase", "decrease"].includes(normalizedAction)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, false, "Action must be 'increase' or 'decrease'")
+        );
+    }
+
+    // Find the cart
+    const cart = await UserCart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json(apiResponse(404, false, "Cart not found"));
+    }
+
+    // Find the item in the cart
+    const itemIndex = cart.items.findIndex(
+      (i) =>
+        i.itemId.toString() === itemId &&
+        i.color.toLowerCase() === color.toLowerCase() &&
+        i.size === size &&
+        i.skuId === skuId
+    );
+    if (itemIndex === -1) {
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "Item not found in cart"));
+    }
+
+    // Store the item before updating
+    let updatedItem = { ...cart.items[itemIndex].toObject() };
+
+    // Update quantity
+    if (normalizedAction === "increase") {
+      cart.items[itemIndex].quantity += 1;
+      updatedItem.quantity += 1;
+    } else if (normalizedAction === "decrease") {
+      if (cart.items[itemIndex].quantity <= 1) {
+        cart.items.splice(itemIndex, 1);
+        await cart.save();
+        return res
+          .status(200)
+          .json(apiResponse(200, true, "Item removed from cart", null));
+      } else {
+        cart.items[itemIndex].quantity -= 1;
+        updatedItem.quantity -= 1;
       }
+    }
 
-      // Find the cart
-      const cart = await UserCart.findOne({ userId });
-      if (!cart) {
-        return res.status(404).json(apiResponse(404, false, "Cart not found"));
-      }
+    await cart.save();
 
-      // Find the item in the cart
-      const itemIndex = cart.items.findIndex(
-        (i) =>
-          i.itemId.toString() === itemId &&
-          i.color.toLowerCase() === color.toLowerCase() &&
-          i.size === size &&
-          i.skuId === skuId
-      );
-      if (itemIndex === -1) {
-        return res.status(404).json(apiResponse(404, false, "Item not found in cart"));
-      }
+    // Fetch the updated item and populate itemId with name, description, MRP, discountedPrice
+    const populatedCart = await UserCart.findOne(
+      { _id: cart._id, "items._id": updatedItem._id },
+      { "items.$": 1 } // Select only the matching item
+    ).populate("items.itemId", "name description MRP discountedPrice");
 
-      // Store the item before updating (for response if removed)
-      let updatedItem = { ...cart.items[itemIndex].toObject() };
+    if (!populatedCart || !populatedCart.items[0]) {
+      return res
+        .status(500)
+        .json(
+          apiResponse(500, false, "Error fetching updated cart item")
+        );
+    }
 
-      // Update quantity
-      if (normalizedAction === "increase") {
-        cart.items[itemIndex].quantity += 1;
-        updatedItem.quantity += 1; // Update the response item
-      } else if (normalizedAction === "decrease") {
-        if (cart.items[itemIndex].quantity <= 1) {
-          cart.items.splice(itemIndex, 1);
-          return res.status(200).json(
-            apiResponse(200, true, "Item removed from cart", null) 
+    const item = populatedCart.items[0];
+
+    // Fetch image from ItemDetail based on itemId, color, size, and skuId
+    let image = null;
+    try {
+      const itemDetail = await ItemDetail.findOne({ itemId: item.itemId._id });
+      if (itemDetail) {
+        const colorData = itemDetail.imagesByColor.find(
+          (colorObj) => colorObj.color.toLowerCase() === item.color.toLowerCase()
+        );
+        if (colorData) {
+          const sizeEntry = colorData.sizes.find(
+            (s) => s.size === item.size && s.skuId === item.skuId
           );
-        } else {
-          cart.items[itemIndex].quantity -= 1;
-          updatedItem.quantity -= 1; // Update the response item
+          if (sizeEntry && colorData.images && colorData.images.length > 0) {
+            // Get the image with the highest priority (lowest priority number)
+            const sortedImages = colorData.images.sort(
+              (a, b) => (a.priority || 0) - (b.priority || 0)
+            );
+            image = sortedImages[0]?.url || null;
+          }
         }
       }
-
-      await cart.save();
-
-      // Populate the specific item's itemId
-      const populatedItem = await UserCart.findOne(
-        { _id: cart._id, "items._id": updatedItem._id },
-        {
-          "items.$": 1 // Select only the matching item
-        })
-      // ).populate({
-      //   path: "items.itemId",
-      //   select: "name MRP image categoryId subCategoryId",
-      //   populate: [
-      //     { path: "categoryId", select: "name" },
-      //     { path: "subCategoryId", select: "name" },
-      //   ],
-      // });
-
-      
-
-      return res.status(200).json(
-        apiResponse(200, true, "Item quantity updated successfully", populatedItem)
-      );
     } catch (error) {
-      console.error("Update cart item quantity error:", {
-        message: error.message,
-        stack: error.stack,
-        body: req.body,
-      });
-      return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
+      console.error(
+        `[updateCartItemQuantity] Error fetching image for itemId ${item.itemId._id}, color ${item.color}, size ${item.size}, skuId ${item.skuId}:`,
+        error.message
+      );
     }
-  };
+
+    // Construct the response item
+    const responseItem = {
+      ...item.toObject(),
+      itemId: {
+        _id: item.itemId._id,
+        name: item.itemId.name,
+        description: item.itemId.description,
+        MRP: item.itemId.MRP,
+        discountedPrice: item.itemId.discountedPrice,
+        image, // Image from ItemDetail
+      },
+    };
+
+    return res
+      .status(200)
+      .json(
+        apiResponse(
+          200,
+          true,
+          "Item quantity updated successfully",
+          responseItem
+        )
+      );
+  } catch (error) {
+    console.error("Update cart item quantity error:", {
+      message: error.message,
+      stack: error.stack,
+      body: req.body,
+    });
+    return res
+      .status(error.statusCode || 500)
+      .json(
+        apiResponse(
+          error.statusCode || 500,
+          false,
+          error.message || "Server error"
+        )
+      );
+  }
+};
