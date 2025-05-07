@@ -13,7 +13,51 @@ const orderSchema = new mongoose.Schema(
     },
     orderDetails: [
       {
-        cartItemId: {type: mongoose.Schema.Types.ObjectId},
+        itemId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Item",
+          required: [true, "itemId is required"],
+        },
+        orderDetails: [
+          {
+            color: {
+              type: String,
+            },
+            sizeAndQuantity: [
+              {
+                size: {
+                  type: String,
+                  trim: true,
+                  lowercase: true,
+                },
+                quantity: {
+                  type: Number,
+                  default: 1,
+                  min: [1, "Quantity must be at least 1"],
+                },
+                skuId: {
+                  type: String,
+                  required: [true, "skuId is required"],
+                  trim: true,
+                },
+              },
+            ],
+          },
+        ],
+        totalQuantity: {
+          type: Number,
+          default: 1,
+          min: [1, "Quantity must be at least 1"],
+        },
+        totalPrice: {
+          type: Number,
+          default: 1,
+          min: [1, "Price must be at least 1"],
+        },
+        addedAt: {
+          type: Date,
+          default: Date.now,
+        },
       },
     ],
     invoice: [
@@ -34,29 +78,10 @@ const orderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "PartnerAddress",
     },
-    paymentMethod: {
-      type: String,
-      enum: ["Online", "COD"],
-    },
-    isWalletAmountUsed:{
-      type:Boolean,
-      default:false
-    },
-    walletAmountUsed: { type: Number, default: 0 },
     
-    razorpayOrderId: { type: String, default: null },
-    razorpayPaymentId: { type: String, default: null },
-    razorpaySignature: { type: String, default: null },
-
-    walletTransactionId: { type: String, default: null },
-    walletRefundTransactionId: { type: String, default: null },
-    walletRefundAmount: { type: Number, default: 0 },
-
-    paymentStatus: {
-      type: String,
-      enum: ["Pending", "Paid", "Failed", "Refunded"],
-      default: "Pending",
-    },
+    paymentMethod:{
+      
+    }
     orderStatus: {
       type: String,
       enum: [
@@ -71,27 +96,58 @@ const orderSchema = new mongoose.Schema(
       default: "In transit",
     },
     isOrderPlaced: { type: Boolean, default: false },
-    isOrderCancelled: {
-      type: Boolean,
-      default: false,
+    isOrderReturned: { type: Boolean, default: false },
+   
+    deliveredAt: {
+      type: Date,
+      default: Date.now(),
+    },
+
+    razorpayOrderId: { type: String, default: null },
+    razorpayPaymentId: { type: String, default: null },
+    razorpaySignature: { type: String, default: null },
+
+    walletMoneyUsed:{
+      type:Number,
+      default:0
     },
     totalAmount: {
       type: Number,
       required: true,
     },
-    cancellationReason:{
-      type:String
+    checkImages: 
+        {
+          url: {
+            type: String,
+            required: true,
+          },
+          uploadedAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+
+    returnInfo: {
+      reason: { type: String },
+      requestDate: { type: Date, default: null },
+      pickupLocationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PartnerAddress",
+        default: null,
+      },
+      returnAndRefundTransactionId: { type: String, default: null },
+      refundAmount: {
+        type: Number,
+        min: 0,
+        default: null,
+      },
+      refundStatus: {
+        type: String,
+        enum: ["Initiated", "Processing", "Completed"],
+        default: null,
+      },
+      
     },
-    bankDetails: {
-      accountNumber: { type: String,trim: true },
-      ifscCode: { type: String ,trim: true},
-      branchName: { type: String},
-      accountName: { type: String },
-    },
-    bankDetailsRefundTransctionId:{type:String,default:null},
-    
-    deliveredAt: { type: Date, default:Date.now() },
-    returnedAt:{type: Date}
   },
   { timestamps: true }
 );

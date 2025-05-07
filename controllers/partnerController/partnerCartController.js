@@ -208,17 +208,41 @@ exports.removeItemFromCart = async (req, res) => {
 
 
 
-// Get Partner's Cart
 exports.getPartnerCart = async (req, res) => {
   try {
     const { partnerId } = req.user;
-    const cart = await PartnerCart.findOne({ partnerId });
+    const cart = await PartnerCart.findOne({ partnerId }).lean();
+
     if (!cart || !cart.items.length) {
-      return res.status(200).json(apiResponse(200,true,"Cart is empty",{ partnerId, items: [] }));
+      return res.status(200).json(apiResponse(200, true, "Cart is empty", { partnerId, items: [] }));
     }
-    return res.status(200).json(apiResponse(200,true,"Cart fetched successfully",cart));
+
+    // Populate all fields of itemId for each item
+    const populatedItems = await Promise.all(
+      cart.items.map(async (item) => {
+        const populatedItem = await Item.findById(item.itemId).lean();
+        if (!populatedItem) {
+          return null; // Skip if item not found
+        }
+        return {
+          ...item,
+          itemId: populatedItem,
+        };
+      })
+    );
+
+    // Filter out null items (in case some items were not found)
+    const validItems = populatedItems.filter((item) => item !== null);
+
+    // Construct response data
+    const responseData = {
+      partnerId,
+      items: validItems,
+    };
+
+    return res.status(200).json(apiResponse(200, true, "Cart fetched successfully", responseData));
   } catch (error) {
     console.error("Get cart error:", error);
-    return res.status(500).json(apiResponse(500,false,error.message));
+    return res.status(500).json(apiResponse(500, false, error.message));
   }
 };

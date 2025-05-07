@@ -5,8 +5,6 @@ const PartnerWishlist = require("../../models/Partner/PartnerWishlist");
 const { apiResponse } = require("../../utils/apiResponse");
 const mongoose = require("mongoose");
 
-
-// Add Item to Wishlist
 exports.addToWishlist = async (req, res) => {
   try {
     console.log("Starting addToWishlist");
@@ -46,7 +44,7 @@ exports.addToWishlist = async (req, res) => {
       return res.status(400).json(apiResponse(400, false, `Color ${color} not available for this item`));
     }
 
-    let wishlist = await PartnerWishlist.findOne({ partnerId:partnerId });
+    let wishlist = await PartnerWishlist.findOne({ partnerId: partnerId });
     if (!wishlist) {
       // Create new wishlist
       wishlist = new PartnerWishlist({
@@ -67,19 +65,35 @@ exports.addToWishlist = async (req, res) => {
 
     await wishlist.save();
 
-    // Populate item and itemDetail for response
-    const populatedWishlist = await PartnerWishlist.findById(wishlist._id)
-    // .populate({
-    //   path: "items.itemId",
-    //   select: "name MRP image categoryId subCategoryId",
-    //   populate: [
-    //     { path: "categoryId", select: "name" },
-    //     { path: "subCategoryId", select: "name" },
-    //   ],
-    // });
+    // Fetch image with priority 1 from ItemDetail for the given itemId and color
+    const itemDetailForImage = await ItemDetail.findOne({ itemId });
+    const colorEntry = itemDetailForImage.imagesByColor.find(
+      (entry) => entry.color.toLowerCase() === color.toLowerCase()
+    );
+    if (!colorEntry) {
+      return res.status(400).json(apiResponse(400, false, `Color ${color} not available for this item`));
+    }
+    const priorityImage = colorEntry.images.find((image) => image.priority === 1);
+    if (!priorityImage) {
+      return res.status(400).json(apiResponse(400, false, `No image with priority 1 found for color ${color}`));
+    }
+
+    // Fetch all fields of the newly added itemId without populating references
+    const populatedItem = await Item.findById(itemId)
+      .lean();
+
+    // Construct response data
+    const responseData = {
+      wishlistId: wishlist._id,
+      item: {
+        itemId: populatedItem,
+        color,
+        image: priorityImage.url,
+      },
+    };
 
     return res.status(200).json(
-      apiResponse(200, true, "Item added to wishlist successfully", populatedWishlist)
+      apiResponse(200, true, "Item added to wishlist successfully", responseData)
     );
   } catch (error) {
     console.error("Error in addToWishlist:", {
@@ -126,14 +140,6 @@ exports.removeItemFromWishlist = async (req, res) => {
 
     // Populate item for response
     const populatedWishlist = await PartnerWishlist.findById(wishlist._id)
-    // .populate({
-    //   path: "items.itemId",
-    //   select: "name MRP image categoryId subCategoryId",
-    //   populate: [
-    //     { path: "categoryId", select: "name" },
-    //     { path: "subCategoryId", select: "name" },
-    //   ],
-    // });
 
     return res.status(200).json(
       apiResponse(200, true, "Item removed from wishlist", populatedWishlist)
@@ -148,31 +154,62 @@ exports.removeItemFromWishlist = async (req, res) => {
   }
 };
 
-// Get User's Wishlist
+
 exports.getPartnerWishlist = async (req, res) => {
   try {
-    console.log("Starting getUserWishlist");
+    console.log("Starting getPartnerWishlist");
     const { partnerId } = req.user;
 
-    // Find wishlist by user ID with population
-    const wishlist = await PartnerWishlist.findOne({ partnerId })
-    console.log(wishlist)
-    // .populate({
-    //   path: "items.itemId",
-    //   select: "name MRP image categoryId subCategoryId",
-    //   populate: [
-    //     { path: "categoryId", select: "name" },
-    //     { path: "subCategoryId", select: "name" },
-    //   ],
-    // });
+    // Find wishlist by partner ID
+    const wishlist = await PartnerWishlist.findOne({ partnerId }).lean();
+    console.log(wishlist);
 
     if (!wishlist || wishlist.items.length === 0) {
       return res.status(200).json(apiResponse(200, true, "Wishlist is empty", { partnerId, items: [] }));
     }
 
-    return res.status(200).json(apiResponse(200, true, "Wishlist fetched successfully", wishlist));
+    // Populate all fields of itemId for each item and fetch image from ItemDetail
+    const populatedItems = await Promise.all(
+      wishlist.items.map(async (item) => {
+        // Fetch all fields of the itemId
+        const populatedItem = await Item.findById(item.itemId).lean();
+        if (!populatedItem) {
+          return null; // Skip if item not found
+        }
+
+        // Fetch image with priority 1 from ItemDetail for the given itemId and color
+        const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
+        let image = null;
+        if (itemDetail) {
+          const colorEntry = itemDetail.imagesByColor.find(
+            (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
+          );
+          if (colorEntry) {
+            const priorityImage = colorEntry.images.find((img) => img.priority === 1);
+            image = priorityImage ? priorityImage.url : null;
+          }
+        }
+
+        return {
+          itemId: populatedItem,
+          color: item.color,
+          image,
+        };
+      })
+    );
+
+    // Filter out null items (in case some items were not found)
+    const validItems = populatedItems.filter((item) => item !== null);
+
+    // Construct response data
+    const responseData = {
+      partnerId,
+      items: validItems,
+    };
+
+    return res.status(200).json(apiResponse(200, true, "Wishlist fetched successfully", responseData));
   } catch (error) {
-    console.error("Error in getUserWishlist:", {
+    console.error("Error in getPartnerWishlist:", {
       message: error.message,
       stack: error.stack,
     });
