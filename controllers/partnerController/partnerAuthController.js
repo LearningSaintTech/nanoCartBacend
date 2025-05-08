@@ -6,6 +6,7 @@ const User = require("../../models/User/User");
 const Wallet=require("../../models/Partner/PartnerWallet")
 const { uploadImageToS3 } = require("../../utils/s3Upload");
 const { apiResponse } = require("../../utils/apiResponse");
+const mongoose=require("mongoose")
 
 
 exports.partnerSignup = async (req, res) => {
@@ -189,5 +190,42 @@ exports.verifyPartner = async (req, res) => {
     }
     console.error("Verification Error:", error.message);
     return res.status(500).json(apiResponse(500, false, error.message));
+  }
+};
+
+
+// Controller to fetch a specific PartnerProfile document based on partnerId from req.body
+exports.getPartnerProfiles = async (req, res) => {
+  try {
+    // Extract partnerId from req.body
+    const { partnerId } = req.user;
+
+    // Validate partnerId
+    if (!partnerId) {
+      return res.status(400).json(apiResponse(400, false, 'partnerId is required in request body'));
+    }
+    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid partnerId format'));
+    }
+
+    // Fetch the specific PartnerProfile document and populate partnerId with specific fields
+    const profile = await PartnerProfile.findOne({ partnerId })
+      .populate({
+        path: 'partnerId',
+        select: 'name phoneNumber email', // Only include these fields from Partner
+      })
+      .lean(); // Convert to plain JavaScript object for faster response
+
+    // Check if profile exists
+    if (!profile) {
+      return res.status(404).json(apiResponse(404, false, 'PartnerProfile not found for the provided partnerId'));
+    }
+
+    // Send successful response
+    return res.status(200).json(apiResponse(200, true, 'PartnerProfile fetched successfully', profile));
+  } catch (error) {
+    // Handle errors (e.g., database connection issues)
+    console.error('Error fetching partner profile:', error);
+    return res.status(500).json(apiResponse(500, false, 'An error occurred while fetching partner profile'));
   }
 };

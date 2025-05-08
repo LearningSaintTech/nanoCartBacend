@@ -31,7 +31,6 @@ const userTBYBRoutes=require("./routes/userTBYBRoutes/userTBYBRoutes");
 
 
 const partnerAuthRoutes=require("./routes/partnerRoutes/partnerAuthRoutes");
-const partnerProfileRoutes=require("./routes/partnerRoutes/partnerProfileRoutes")
 const partnerWishlistRoutes=require("./routes/partnerRoutes/partnerWishlistRoutes");
 const partnerCartRoutes=require("./routes/partnerRoutes/partnerCartRoutes")
 const partnerRatingReview=require("./routes/partnerRoutes/partnerRatingAndReview")
@@ -39,6 +38,8 @@ const partnerAddress=require("./routes/partnerRoutes/partnerAddress")
 const partnerWalletRoutes=require("./routes/partnerRoutes/partnerWalletRoutes")
 // const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrder");
 
+
+const adminSideRoutes=require("./routes/adminSideRoutes/getTotalRoutes")
 
  
 //middlewares
@@ -69,13 +70,14 @@ app.use("/api/user/tbyb",userTBYBRoutes)
 
 
 app.use("/api/auth/partner",partnerAuthRoutes);
-app.use("/api/partner/profile",partnerProfileRoutes);
 app.use("/api/partner/wishlist",partnerWishlistRoutes)
 app.use("/api/partner/cart",partnerCartRoutes)
 app.use("/api/partner/ratingreview",partnerRatingReview)
 app.use("/api/wallet", partnerWalletRoutes);
 app.use("/api/partner/address",partnerAddress)
 // app.use("/api/partner/order", partnerOrderRoutes);
+
+app.use("/api/total",adminSideRoutes)
 
 
 

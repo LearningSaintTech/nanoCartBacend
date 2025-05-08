@@ -112,7 +112,7 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    checkImages: 
+    chequeImages: 
         {
           url: {
             type: String,
