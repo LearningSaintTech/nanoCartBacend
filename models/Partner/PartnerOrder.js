@@ -79,9 +79,6 @@ const orderSchema = new mongoose.Schema(
       ref: "PartnerAddress",
     },
     
-    paymentMethod:{
-      
-    }
     orderStatus: {
       type: String,
       enum: [
