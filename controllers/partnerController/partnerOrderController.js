@@ -1,306 +1,392 @@
-const mongoose = require("mongoose");
-const PartnerOrder = require("../models/PartnerOrder");
-const PartnerCart = require("../models/PartnerCart");
-const Wallet = require("../models/Wallet");
-const Razorpay = require("razorpay");
-const crypto = require("crypto");
-const PartnerAddress = require("../models/PartnerAddress");
+const PartnerOrder = require('../../models/Partner/PartnerOrder');
+const Partner = require('../../models/Partner/Partner');
+const Item = require('../../models/Items/Item');
+const PartnerAddress = require('../../models/Partner/PartnerAddress');
+const Wallet = require('../../models/Partner/PartnerWallet');
+const PartnerCart = require('../../models/Partner/PartnerCart');
+const mongoose = require('mongoose');
+const crypto = require('crypto');
+const { apiResponse } = require('../../utils/apiResponse');
+const { uploadImageToS3 } = require('../../utils/s3Upload');
+const { razorpay } = require('../../config/razorpay');
 
-// Initialize Razorpay instance
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
-
-// Create Partner Order Controller
+// Controller to create a new PartnerOrder document
 exports.createPartnerOrder = async (req, res) => {
   try {
-    const {
-      walletAmountUsed = 0,
-      orderDetails,
-      invoice,
-      shippingAddressId,
-      paymentMethod,
-      totalAmount,
-      isWalletAmountUsed = false,
-    } = req.body;
+    // Extract partnerId from req.user
     const { partnerId } = req.user;
 
+    if (!partnerId) {
+      return res.status(401).json(apiResponse(401, false, 'Unauthorized: Partner ID not found in request'));
+    }
+
+    // Validate partnerId
+    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid partnerId format'));
+    }
+    const partner = await Partner.findById(partnerId);
+    if (!partner) {
+      return res.status(404).json(apiResponse(404, false, 'Partner not found'));
+    }
+
+    // Extract fields from req.body
+    const {
+      orderProductDetails,
+      shippingAddressId,
+      totalAmount,
+      isWalletPayment,
+      isOnlinePayment,
+      isCodPayment,
+      isChequePayment,
+      walletAmountUsed,
+    } = req.body;
+
+    let chequeImageFile = null;
+    if (req.files) {
+      chequeImageFile = req.files.chequeImageFile;
+    }
+
     // Validate required fields
-    if (!orderDetails || !Array.isArray(orderDetails) || orderDetails.length === 0) {
-      return res.status(400).json({ success: false, message: "Order details are required and must be a non-empty array" });
-    }
-    if (!invoice || !Array.isArray(invoice) || invoice.length === 0) {
-      return res.status(400).json({ success: false, message: "Invoice details are required and must be a non-empty array" });
-    }
-    if (!shippingAddressId) {
-      return res.status(400).json({ success: false, message: "Shipping address is required" });
-    }
-    if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
-      return res.status(400).json({ success: false, message: "Valid payment method (Online or COD) is required" });
+    if (!orderProductDetails || !totalAmount || !shippingAddressId) {
+      return res.status(400).json(apiResponse(400, false, 'orderProductDetails, shippingAddressId, and totalAmount are required'));
     }
 
-    // Validate isWalletAmountUsed and walletAmountUsed consistency
-    if (isWalletAmountUsed && walletAmountUsed <= 0) {
-      return res.status(400).json({ success: false, message: "walletAmountUsed must be positive when isWalletAmountUsed is true" });
+    // Validate payment method selection
+    const activeMethodsCount = [isWalletPayment, isOnlinePayment, isCodPayment, isChequePayment].filter(Boolean).length;
+    if (activeMethodsCount === 0) {
+      return res.status(400).json(apiResponse(400, false, 'At least one payment method must be selected'));
     }
-    if (!isWalletAmountUsed && walletAmountUsed > 0) {
-      return res.status(400).json({ success: false, message: "isWalletAmountUsed must be true when walletAmountUsed is provided" });
-    }
-
-    // Validate invoice array entries
-    for (const entry of invoice) {
-      if (
-        !entry.key ||
-        typeof entry.key !== "string" ||
-        entry.key.trim() === ""
-      ) {
-        return res.status(400).json({ success: false, message: "Each invoice entry must have a valid key" });
-      }
-      if (
-        entry.value === undefined ||
-        entry.value === null ||
-        entry.value.toString().trim() === ""
-      ) {
-        return res.status(400).json({ success: false, message: "Each invoice entry must have a valid value" });
-      }
+    if (activeMethodsCount > 2 || (activeMethodsCount === 2 && !isWalletPayment)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid payment method combination; only wallet can be combined with one of online, cod, or cheque'));
     }
 
-    // Validate totalAmount
-    if (typeof totalAmount !== "number" || totalAmount <= 0) {
-      return res.status(400).json({ success: false, message: "Valid totalAmount is required and must be positive" });
+    // Generate unique orderId
+    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Validate orderProductDetails
+    if (!Array.isArray(orderProductDetails) || orderProductDetails.length === 0) {
+      return res.status(400).json(apiResponse(400, false, 'orderProductDetails must be a non-empty array'));
     }
-
-    // Validate orderDetails cartItemIds against PartnerCart
-    const cart = await PartnerCart.findOne({ partnerId }).populate("items.itemId");
-    if (!cart || !cart.items || cart.items.length === 0) {
-      return res.status(404).json({ success: false, message: "No cart found for this partner" });
-    }
-
-    for (const item of orderDetails) {
-      if (!item.cartItemId || !mongoose.Types.ObjectId.isValid(item.cartItemId)) {
-        return res.status(400).json({ success: false, message: "Invalid cartItemId in order details" });
+    for (const detail of orderProductDetails) {
+      if (!mongoose.Types.ObjectId.isValid(detail.itemId)) {
+        return res.status(400).json(apiResponse(400, false, 'Invalid itemId format in orderProductDetails'));
       }
-
-      // Check if cartItemId exists in the partner's cart items
-      const cartItem = cart.items.find(
-        (cartItem) => cartItem._id.toString() === item.cartItemId.toString()
-      );
-      if (!cartItem) {
-        return res.status(404).json({ success: false, message: `Cart item ${item.cartItemId} not found in partner's cart` });
+      const itemExists = await Item.findById(detail.itemId);
+      if (!itemExists) {
+        return res.status(404).json(apiResponse(404, false, `Item not found for itemId: ${detail.itemId}`));
       }
-
-      // Additional validation for cart item properties
-      if (!cartItem.itemId || !mongoose.Types.ObjectId.isValid(cartItem.itemId)) {
-        return res.status(400).json({ success: false, message: `Invalid itemId for cart item ${item.cartItemId}` });
+      if (!detail.orderDetails || !Array.isArray(detail.orderDetails)) {
+        return res.status(400).json(apiResponse(400, false, 'orderDetails must contain a valid orderDetails array'));
       }
-      if (cartItem.totalQuantity < 1) {
-        return res.status(400).json({ success: false, message: `Invalid totalQuantity for cart item ${item.cartItemId}` });
-      }
-      if (cartItem.totalPrice < 1) {
-        return res.status(400).json({ success: false, message: `Invalid totalPrice for cart item ${item.cartItemId}` });
-      }
-      if (!cartItem.orderDetails || !Array.isArray(cartItem.orderDetails) || cartItem.orderDetails.length === 0) {
-        return res.status(400).json({ success: false, message: `Order details missing for cart item ${item.cartItemId}` });
-      }
-      for (const detail of cartItem.orderDetails) {
-        if (detail.sizeAndQuantity && Array.isArray(detail.sizeAndQuantity)) {
-          for (const sizeQty of detail.sizeAndQuantity) {
-            if (!sizeQty.skuId || typeof sizeQty.skuId !== "string" || sizeQty.skuId.trim() === "") {
-              return res.status(400).json({ success: false, message: `Invalid skuId for cart item ${item.cartItemId}` });
-            }
-            if (sizeQty.quantity < 1) {
-              return res.status(400).json({ success: false, message: `Invalid quantity for cart item ${item.cartItemId}` });
+      for (const subDetail of detail.orderDetails) {
+        if (subDetail.sizeAndQuantity && Array.isArray(subDetail.sizeAndQuantity)) {
+          for (const sizeQty of subDetail.sizeAndQuantity) {
+            if (!sizeQty.skuId || sizeQty.quantity < 1) {
+              return res.status(400).json(apiResponse(400, false, 'skuId and valid quantity are required in sizeAndQuantity'));
             }
           }
         }
       }
     }
 
-    // Validate shipping address
-    const shippingAddress = await PartnerAddress.findOne({
-      _id: shippingAddressId,
-      partnerId,
-    });
-    if (!shippingAddress) {
-      return res.status(404).json({ success: false, message: "Shipping address not found or does not belong to partner" });
+    // Validate items in cart
+    const cart = await PartnerCart.findOne({ partnerId });
+    if (!cart || !cart.items || cart.items.length === 0) {
+      return res.status(400).json(apiResponse(400, false, 'Cart is empty or not found'));
     }
 
-    // Generate unique orderId
-    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Check if all ordered items exist in cart with sufficient quantity
+    for (const orderDetail of orderProductDetails) {
+      for (const subDetail of orderDetail.orderDetails) {
+        for (const sizeQty of subDetail.sizeAndQuantity || []) {
+          const cartItem = cart.items.find(
+            (item) =>
+              item.itemId.toString() === orderDetail.itemId.toString() &&
+              item.skuId === sizeQty.skuId &&
+              item.color === subDetail.color &&
+              item.size === sizeQty.size
+          );
+          if (!cartItem) {
+            return res.status(400).json(apiResponse(400, false, `Item with skuId ${sizeQty.skuId} not found in cart`));
+          }
+          if (cartItem.quantity < sizeQty.quantity) {
+            return res.status(400).json(apiResponse(400, false, `Insufficient quantity for skuId ${sizeQty.skuId} in cart`));
+          }
+        }
+      }
+    }
 
-    // Base order object
-    const orderData = {
+    // Validate shippingAddressId
+    if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid shippingAddressId format'));
+    }
+    const addressExists = await PartnerAddress.findOne({
+      partnerId,
+      "addressDetail._id": shippingAddressId,
+    });
+    if (!addressExists) {
+      return res.status(404).json(apiResponse(404, false, 'Shipping address not found'));
+    }
+
+    // Initialize payment amounts and fields
+    let walletAmountUsedFinal = walletAmountUsed;
+    let onlineAmount = 0;
+    let codAmount = 0;
+    let chequeAmount = 0;
+    let razorpayOrderId = null;
+    let chequeImages = null;
+    let finalOrderStatus = 'In transit';
+
+    // Handle payment logic based on booleans
+    if (isWalletPayment) {
+      // Fetch wallet for the partner
+      const wallet = await Wallet.findOne({ partnerId });
+      if (!wallet) {
+        return res.status(404).json(apiResponse(404, false, 'Wallet not found for partner'));
+      }
+      const partnerWalletAmount = wallet.totalBalance || 0;
+      if (walletAmountUsed <= 0) {
+        return res.status(400).json(apiResponse(400, false, 'walletAmountUsed must be greater than 0 when isWalletPayment is true'));
+      }
+      if (walletAmountUsed > partnerWalletAmount) {
+        return res.status(400).json(apiResponse(400, false, 'Insufficient wallet balance'));
+      }
+      if (walletAmountUsed > totalAmount) {
+        return res.status(400).json(apiResponse(400, false, 'walletAmountUsed cannot exceed totalAmount'));
+      }
+
+      // Wallet + Online
+      if (isOnlinePayment) {
+        onlineAmount = totalAmount - walletAmountUsed;
+        if (onlineAmount <= 0) {
+          return res.status(400).json(apiResponse(400, false, 'Online amount must be greater than 0'));
+        }
+        const razorpayOrder = await razorpay.orders.create({
+          amount: onlineAmount * 100, // Razorpay expects amount in paise
+          currency: 'INR',
+          receipt: orderId,
+        });
+        razorpayOrderId = razorpayOrder.id;
+      }
+
+      // Wallet + COD
+      if (isCodPayment) {
+        codAmount = totalAmount - walletAmountUsed;
+        if (codAmount <= 0) {
+          return res.status(400).json(apiResponse(400, false, 'COD amount must be greater than 0'));
+        }
+        finalOrderStatus = 'In transit';
+      }
+
+      // Wallet + Cheque
+      if (isChequePayment) {
+        if (!chequeImageFile) {
+          return res.status(400).json(apiResponse(400, false, 'Cheque image file is required for cheque payment'));
+        }
+        const chequeImageUrl = await uploadImageToS3(chequeImageFile, 'cheque_images');
+        chequeImages = { url: chequeImageUrl, uploadedAt: new Date() };
+        chequeAmount = totalAmount - walletAmountUsed;
+        if (chequeAmount <= 0) {
+          return res.status(400).json(apiResponse(400, false, 'Cheque amount must be greater than 0'));
+        }
+      }
+
+      // Only Wallet
+      if (!isOnlinePayment && !isCodPayment && !isChequePayment) {
+        if (walletAmountUsed < totalAmount) {
+          return res.status(400).json(apiResponse(400, false, 'Insufficient wallet amount; totalAmount must equal walletAmountUsed'));
+        }
+        walletAmountUsedFinal = totalAmount;
+        finalOrderStatus = 'In transit';
+      }
+
+      // Update wallet balance and add transaction
+      wallet.totalBalance -= walletAmountUsedFinal;
+      wallet.transactions.push({
+        type: 'debit',
+        amount: walletAmountUsedFinal,
+        description: `Payment for order ${orderId}`,
+        orderId,
+        status: 'completed',
+        createdAt: new Date(),
+      });
+      await wallet.save();
+    } else {
+      // Only Online
+      if (isOnlinePayment && !isCodPayment && !isChequePayment) {
+        onlineAmount = totalAmount;
+        const razorpayOrder = await razorpay.orders.create({
+          amount: onlineAmount * 100,
+          currency: 'INR',
+          receipt: orderId,
+        });
+        razorpayOrderId = razorpayOrder.id;
+      }
+
+      // Only COD
+      if (isCodPayment && !isOnlinePayment && !isChequePayment) {
+        codAmount = totalAmount;
+        finalOrderStatus = 'In transit';
+      }
+
+      // Only Cheque
+      if (isChequePayment && !isOnlinePayment && !isCodPayment) {
+        if (!chequeImageFile) {
+          return res.status(400).json(apiResponse(400, false, 'Cheque image file is required for cheque payment'));
+        }
+        const chequeImageUrl = await uploadImageToS3(chequeImageFile, 'cheque_images');
+        chequeImages = { url: chequeImageUrl, uploadedAt: new Date() };
+        chequeAmount = totalAmount;
+        finalOrderStatus = 'In transit';
+      }
+
+      // Invalid single method
+      if (activeMethodsCount > 1) {
+        return res.status(400).json(apiResponse(400, false, 'Invalid payment method combination; select one of online, cod, or cheque when wallet is not used'));
+      }
+    }
+
+    // Validate total amount
+    const calculatedTotal = walletAmountUsedFinal + onlineAmount + codAmount + chequeAmount;
+    if (calculatedTotal !== totalAmount) {
+      return res.status(400).json(apiResponse(400, false, 'Total amount must equal the sum of wallet, online, cod, and cheque amounts'));
+    }
+
+    // Create new PartnerOrder document
+    const newOrder = new PartnerOrder({
       orderId,
       partnerId,
-      orderDetails,
-      invoice,
+      orderProductDetails,
       shippingAddressId,
-      paymentMethod,
       totalAmount,
-      walletAmountUsed,
-      isOrderPlaced: true,
-    };
+      chequeImages,
+      razorpayOrderId,
+      walletAmountUsed: walletAmountUsedFinal,
+      onlineAmount,
+      codAmount,
+      chequeAmount,
+      isWalletPayment,
+      isOnlinePayment,
+      isCodPayment,
+      isChequePayment,
+      orderStatus: finalOrderStatus,
+      isOrderPlaced: !isOnlinePayment, // False for online payments requiring verification
+      deliveredAt: finalOrderStatus === 'Delivered' ? new Date() : undefined,
+    });
 
-    // Handle different payment scenarios
-    if (paymentMethod === "COD" && isWalletAmountUsed) {
-      // Case 1: Wallet + COD
-      orderData.paymentStatus = "Pending";
-      const order = await PartnerOrder.create(orderData);
+    // Save the order
+    await newOrder.save();
 
-      // Call deductFunds for wallet amount
-      await deductFunds({
-        body: {
-          partnerId,
-          amount: walletAmountUsed,
-          orderId,
-          description: `Wallet payment for order ${orderId}`,
-        },
-        user: { partnerId },
-      });
-
-      return res.status(201).json({
-        success: true,
-        message: "Order created successfully with Wallet + COD",
-        order,
-      });
-
-    } else if (paymentMethod === "Online" && isWalletAmountUsed) {
-      // Case 2: Wallet + Online
-      const amountToPayOnline = totalAmount - walletAmountUsed;
-      if (amountToPayOnline <= 0) {
-        return res.status(400).json({ success: false, message: "Online payment amount must be greater than 0" });
+    // Remove ordered items from cart
+    for (const orderDetail of orderProductDetails) {
+      for (const subDetail of orderDetail.orderDetails) {
+        for (const sizeQty of subDetail.sizeAndQuantity || []) {
+          cart.items = cart.items.filter(
+            (item) =>
+              !(
+                item.itemId.toString() === orderDetail.itemId.toString() &&
+                item.skuId === sizeQty.skuId &&
+                item.color === subDetail.color &&
+                item.size === sizeQty.size
+              )
+          );
+        }
       }
-
-      // Create Razorpay order
-      const razorpayOrder = await razorpay.orders.create({
-        amount: amountToPayOnline * 100, // Convert to paise
-        currency: "INR",
-        receipt: orderId,
-      });
-
-      orderData.razorpayOrderId = razorpayOrder.id;
-      orderData.paymentStatus = "Pending";
-      const order = await PartnerOrder.create(orderData);
-
-      return res.status(201).json({
-        success: true,
-        message: "Order created successfully with Wallet + Online",
-        order,
-        razorpayOrder: {
-          id: razorpayOrder.id,
-          amount: razorpayOrder.amount,
-          currency: razorpayOrder.currency,
-        },
-      });
-
-    } else if (paymentMethod === "COD") {
-      // Case 3: Only COD
-      if (isWalletAmountUsed) {
-        return res.status(400).json({ success: false, message: "Wallet cannot be used with Only COD payment" });
-      }
-      orderData.paymentStatus = "Pending";
-      const order = await PartnerOrder.create(orderData);
-
-      return res.status(201).json({
-        success: true,
-        message: "Order created successfully with COD",
-        order,
-      });
-
-    } else if (paymentMethod === "Online") {
-      // Case 4: Only Online
-      if (isWalletAmountUsed) {
-        return res.status(400).json({ success: false, message: "Wallet cannot be used with Only Online payment" });
-      }
-      const razorpayOrder = await razorpay.orders.create({
-        amount: totalAmount * 100, // Convert to paise
-        currency: "INR",
-        receipt: orderId,
-      });
-
-      orderData.razorpayOrderId = razorpayOrder.id;
-      orderData.paymentStatus = "Pending";
-      const order = await PartnerOrder.create(orderData);
-
-      return res.status(201).json({
-        success: true,
-        message: "Order created successfully with Online payment",
-        order,
-        razorpayOrder: {
-          id: razorpayOrder.id,
-          amount: razorpayOrder.amount,
-          currency: razorpayOrder.currency,
-        },
-      });
     }
+    await cart.save();
 
+    // Populate relevant fields for response
+    const populatedOrder = await PartnerOrder.findById(newOrder._id)
+      .populate({
+        path: 'partnerId',
+        select: 'name phoneNumber email',
+      })
+      .populate({
+        path: 'orderProductDetails.itemId',
+        select: 'name image',
+      })
+      .populate({
+        path: 'shippingAddressId',
+        select: 'address pincode city state',
+      })
+      .lean();
+
+    // Send successful response
+    return res.status(201).json(apiResponse(201, true, 'PartnerOrder created successfully', populatedOrder));
   } catch (error) {
-    console.error("Error creating partner order:", error.message);
-    return res.status(500).json({ success: false, message: error.message });
+    // Handle errors
+    console.error('Error creating partner order:', error);
+    return res.status(500).json(apiResponse(500, false, 'An error occurred while creating partner order'));
   }
 };
 
-// Verify Online Payment Controller
+// Controller to verify Razorpay payment
 exports.verifyPayment = async (req, res) => {
   try {
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      orderId,
-    } = req.body;
+    // Extract partnerId from req.user
     const { partnerId } = req.user;
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !orderId) {
-      return res.status(400).json({ success: false, message: "All payment details are required" });
+    if (!partnerId) {
+      return res.status(401).json(apiResponse(401, false, 'Unauthorized: Partner ID not found in request'));
+    }
+
+    // Validate partnerId
+    if (!mongoose.Types.ObjectId.isValid(partnerId)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid partnerId format'));
+    }
+
+    // Extract payment details from req.body
+    const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
+
+    // Validate required fields
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      return res.status(400).json(apiResponse(400, false, 'razorpayOrderId, razorpayPaymentId, and razorpaySignature are required'));
     }
 
     // Find the order
-    const order = await PartnerOrder.findOne({ orderId, partnerId });
+    const order = await PartnerOrder.findOne({ razorpayOrderId, partnerId, isOnlinePayment: true });
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json(apiResponse(404, false, 'Order not found or not associated with online payment'));
     }
 
-    // Verify Razorpay signature
+    // Verify payment signature
     const generatedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+      .digest('hex');
 
-    if (generatedSignature !== razorpay_signature) {
-      return res.status(400).json({ success: false, message: "Invalid payment signature" });
+    if (generatedSignature !== razorpaySignature) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid payment signature'));
     }
 
     // Update order with payment details
-    order.razorpayOrderId = razorpay_order_id;
-    order.razorpayPaymentId = razorpay_payment_id;
-    order.razorpaySignature = razorpay_signature;
-    order.paymentStatus = "Paid";
-
-    // If wallet amount was used, deduct funds
-    if (order.walletAmountUsed > 0) {
-      await deductFunds({
-        body: {
-          partnerId,
-          amount: order.walletAmountUsed,
-          orderId,
-          description: `Wallet payment for order ${orderId}`,
-        },
-        user: { partnerId },
-      });
-    }
-
+    order.razorpayPaymentId = razorpayPaymentId;
+    order.razorpaySignature = razorpaySignature;
+    order.isOrderPlaced = true;
+    order.orderStatus = 'In transit';
     await order.save();
 
-    return res.status(200).json({
-      success: true,
-      message: "Payment verified successfully",
-      order,
-    });
+    // Populate relevant fields for response
+    const populatedOrder = await PartnerOrder.findById(order._id)
+      .populate({
+        path: 'partnerId',
+        select: 'name phoneNumber email',
+      })
+      .populate({
+        path: 'orderProductDetails.itemId',
+        select: 'name image',
+      })
+      .populate({
+        path: 'shippingAddressId',
+        select: 'address pincode city state',
+      })
+      .lean();
 
+    // Send successful response
+    return res.status(200).json(apiResponse(200, true, 'Payment verified successfully', populatedOrder));
   } catch (error) {
-    console.error("Error verifying payment:", error.message);
-    return res.status(500).json({ success: false, message: error.message });
+    // Handle errors
+    console.error('Error verifying payment:', error);
+    return res.status(500).json(apiResponse(500, false, 'An error occurred while verifying payment'));
   }
 };

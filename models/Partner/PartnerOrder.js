@@ -11,7 +11,7 @@ const orderSchema = new mongoose.Schema(
       ref: "Partner",
       required: true,
     },
-    orderDetails: [
+    orderProductDetails: [
       {
         itemId: {
           type: mongoose.Schema.Types.ObjectId,
@@ -74,11 +74,11 @@ const orderSchema = new mongoose.Schema(
         },
       },
     ],
+    
     shippingAddressId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PartnerAddress",
     },
-    
     orderStatus: {
       type: String,
       enum: [
@@ -104,10 +104,41 @@ const orderSchema = new mongoose.Schema(
     razorpayPaymentId: { type: String, default: null },
     razorpaySignature: { type: String, default: null },
 
-    walletMoneyUsed:{
+    isOnlinePayment:{
+      type:Boolean,
+      default:false
+    },
+    onlineAmount:{
       type:Number,
       default:0
     },
+    isCodPayment:{
+      type:Boolean,
+      default:false
+    },
+    codAmount:{
+      type:Number,
+      default:0
+    },
+    isChequePayment:{
+      type:Boolean,
+      default:false
+    },
+    chequeAmount:{
+      type:Number,
+      default:0
+    },
+    isWalletPayment:{
+      type:Boolean,
+      default:false
+    },
+    walletAmountUsed:{
+      type:Number,
+      default:0
+    },
+    
+    
+
     totalAmount: {
       type: Number,
       required: true,
@@ -116,7 +147,6 @@ const orderSchema = new mongoose.Schema(
         {
           url: {
             type: String,
-            required: true,
           },
           uploadedAt: {
             type: Date,
