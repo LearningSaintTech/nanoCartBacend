@@ -440,12 +440,11 @@ exports.getItemDetailsByItemId = async (req, res) => {
     const uniqueColors = [...new Set(colors)].sort();
 
     // Send successful response
-    return res.status(200).json(
-      apiResponse(200, true, 'Item details and colors fetched successfully', {
-        data: itemDetails,
-        colors: uniqueColors,
-      })
-    );
+    return res.status(200).json({
+      message: "Item details fetched successfully.",
+      data: itemDetails,
+      colors: uniqueColors,
+    });
   } catch (error) {
     console.error('Error in getItemDetailsByItemId:', error);
     return res.status(500).json(
