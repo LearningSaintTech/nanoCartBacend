@@ -38,6 +38,7 @@ exports.createSubCategory = async (req, res) => {
     // Check for existing subcategory with the same name
     const existingSubCategory = await SubCategory.findOne({
       name: formattedName,
+      categoryId:categoryId
     });
     if (existingSubCategory) {
       return res
@@ -245,7 +246,7 @@ exports.getSubCategoryByCategoryId = async (req, res) => {
   try {
     const { categoryId } = req.params;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
     if (!mongoose.Types.ObjectId.isValid(categoryId)) {

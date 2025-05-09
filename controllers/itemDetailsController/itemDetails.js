@@ -375,31 +375,82 @@ exports.getItemDetailById = async (req, res) => {
 };
 
 
-//get ItemDetails by ItemId
+// //get ItemDetails by ItemId
+// exports.getItemDetailsByItemId = async (req, res) => {
+//   try {
+//     const { itemId } = req.params;
+
+//     if (!itemId) {
+//       return res.status(400).json({ message: "itemId is required in request body." });
+//     }
+
+//     const itemDetails = await ItemDetail.find({ itemId: itemId }).populate("itemId");
+
+//     if (!itemDetails || itemDetails.length === 0) {
+//       return res.status(404).json({ message: "No item details found for this item." });
+//     }
+
+//     res.status(200).json({
+//       message: "Item details fetched successfully.",
+//       data: itemDetails,
+//     });
+//   } catch (error) {
+//     console.error("Error in getItemDetailsByItemId:", error);
+//     res.status(500).json({
+//       message: "Internal server error.",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+// Controller to get ItemDetails by ItemId and extract colors
 exports.getItemDetailsByItemId = async (req, res) => {
   try {
     const { itemId } = req.params;
 
+    // Validate itemId
     if (!itemId) {
-      return res.status(400).json({ message: "itemId is required in request body." });
+      return res.status(400).json(apiResponse(400, false, 'itemId is required in request parameters'));
+    }
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid itemId format'));
     }
 
-    const itemDetails = await ItemDetail.find({ itemId: itemId }).populate("itemId");
+    // Fetch item details and populate itemId
+    const itemDetails = await ItemDetail.find({ itemId }).populate('itemId');
 
     if (!itemDetails || itemDetails.length === 0) {
-      return res.status(404).json({ message: "No item details found for this item." });
+      return res.status(404).json(apiResponse(404, false, 'No item details found for this item'));
     }
 
-    res.status(200).json({
-      message: "Item details fetched successfully.",
-      data: itemDetails,
-    });
+    // Extract colors from imagesByColor for each item detail
+    const colors = itemDetails.reduce((acc, detail) => {
+      if (detail.imagesByColor && Array.isArray(detail.imagesByColor)) {
+        const detailColors = detail.imagesByColor
+          .map((entry) => entry.color)
+          .filter((color) => color); // Filter out null/undefined colors
+        return [...acc, ...detailColors];
+      }
+      return acc;
+    }, []);
+
+    // Remove duplicates (if any) and sort colors
+    const uniqueColors = [...new Set(colors)].sort();
+
+    // Send successful response
+    return res.status(200).json(
+      apiResponse(200, true, 'Item details and colors fetched successfully', {
+        itemDetails,
+        colors: uniqueColors,
+      })
+    );
   } catch (error) {
-    console.error("Error in getItemDetailsByItemId:", error);
-    res.status(500).json({
-      message: "Internal server error.",
-      error: error.message,
-    });
+    console.error('Error in getItemDetailsByItemId:', error);
+    return res.status(500).json(
+      apiResponse(500, false, 'An error occurred while fetching item details', { error: error.message })
+    );
   }
 };
 

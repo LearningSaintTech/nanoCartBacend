@@ -40,6 +40,7 @@ const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrderRoutes");
 
 
 const adminSideRoutes=require("./routes/adminSideRoutes/getTotalRoutes")
+const adminRequiredRoutes=require("./routes/adminSideRoutes/getTotalInfoRoutes")
 
  
 //middlewares
@@ -80,6 +81,8 @@ app.use("/api/partner/order", partnerOrderRoutes);
 
 
 app.use("/api/total",adminSideRoutes)
+
+app.use("/api/total",adminRequiredRoutes)
 
 
 
