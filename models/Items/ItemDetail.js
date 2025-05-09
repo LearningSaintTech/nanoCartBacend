@@ -10,6 +10,7 @@ const itemDetailSchema = new mongoose.Schema(
     imagesByColor: [ 
       {
         color: { type: String },
+        hexCode:{type:String},
         images: [
           {
             url: { type: String }, // Image or video URL from S3
