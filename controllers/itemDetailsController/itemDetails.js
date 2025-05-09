@@ -442,7 +442,7 @@ exports.getItemDetailsByItemId = async (req, res) => {
     // Send successful response
     return res.status(200).json(
       apiResponse(200, true, 'Item details and colors fetched successfully', {
-        itemDetails,
+        data: itemDetails,
         colors: uniqueColors,
       })
     );
