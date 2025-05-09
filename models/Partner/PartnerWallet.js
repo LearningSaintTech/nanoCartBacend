@@ -5,8 +5,9 @@ const WalletSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Partner",
     required: true,
-    unique: true, 
-  }, 
+    unique: true,
+    index: true,
+  },
   totalBalance: {
     type: Number,
     required: true,
@@ -17,6 +18,7 @@ const WalletSchema = new mongoose.Schema({
     type: String,
     default: "INR",
     required: true,
+    enum: ["INR"], // Add more currencies if needed
   },
   isActive: {
     type: Boolean,
@@ -40,7 +42,7 @@ const WalletSchema = new mongoose.Schema({
         default: "",
       },
       orderId: {
-        type:String
+        type: String,
       },
       status: {
         type: String,

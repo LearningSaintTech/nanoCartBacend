@@ -36,7 +36,7 @@ const partnerCartRoutes=require("./routes/partnerRoutes/partnerCartRoutes")
 const partnerRatingReview=require("./routes/partnerRoutes/partnerRatingAndReview")
 const partnerAddress=require("./routes/partnerRoutes/partnerAddress")
 const partnerWalletRoutes=require("./routes/partnerRoutes/partnerWalletRoutes")
-const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrder");
+const partnerOrderRoutes = require("./routes/partnerRoutes/partnerOrderRoutes");
 
 
 const adminSideRoutes=require("./routes/adminSideRoutes/getTotalRoutes")
@@ -76,6 +76,8 @@ app.use("/api/partner/ratingreview",partnerRatingReview)
 app.use("/api/wallet", partnerWalletRoutes);
 app.use("/api/partner/address",partnerAddress)
 app.use("/api/partner/order", partnerOrderRoutes);
+
+
 
 app.use("/api/total",adminSideRoutes)
 

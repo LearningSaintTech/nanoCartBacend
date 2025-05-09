@@ -8,7 +8,6 @@ const AddressSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-
     addressDetail: [
       {
         name: { type: String, required: true },
@@ -46,10 +45,9 @@ const AddressSchema = new mongoose.Schema(
         cityTown: { type: String, required: true },
         state: { type: String, required: true },
         country: { type: String, required: true },
-
         addressType: {
           type: String,
-          enum: ["Home", "Work"],
+          enum: ["Home", "Work","Other"],
           default: "Home",
         },
         isDefault: {
@@ -62,6 +60,4 @@ const AddressSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const Address = mongoose.model("PartnerAddress", AddressSchema);
-
-module.exports = Address;
+module.exports = mongoose.model("PartnerAddress", AddressSchema);

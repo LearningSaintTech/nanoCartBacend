@@ -5,11 +5,14 @@ const orderSchema = new mongoose.Schema(
     orderId: {
       type: String,
       required: true,
+      unique: true,
+      index: true,
     },
     partnerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Partner",
       required: true,
+      index: true,
     },
     orderProductDetails: [
       {
@@ -74,7 +77,6 @@ const orderSchema = new mongoose.Schema(
         },
       },
     ],
-    
     shippingAddressId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PartnerAddress",
@@ -88,72 +90,64 @@ const orderSchema = new mongoose.Schema(
         "Dispatched",
         "Delivered",
         "Order Returned",
-        "Refund to Wallet",
       ],
       default: "In transit",
     },
     isOrderPlaced: { type: Boolean, default: false },
     isOrderReturned: { type: Boolean, default: false },
-   
-    deliveredAt: {
-      type: Date,
-      default: Date.now(),
-    },
-
-    razorpayOrderId: { type: String, default: null },
+    razorpayOrderId: { type: String, default: null, index: true },
     razorpayPaymentId: { type: String, default: null },
     razorpaySignature: { type: String, default: null },
-
-    isOnlinePayment:{
-      type:Boolean,
-      default:false
+    isOnlinePayment: {
+      type: Boolean,
+      default: false,
     },
-    onlineAmount:{
-      type:Number,
-      default:0
+    onlineAmount: {
+      type: Number,
+      default: 0,
     },
-    isCodPayment:{
-      type:Boolean,
-      default:false
+    isCodPayment: {
+      type: Boolean,
+      default: false,
     },
-    codAmount:{
-      type:Number,
-      default:0
+    codAmount: {
+      type: Number,
+      default: 0,
     },
-    isChequePayment:{
-      type:Boolean,
-      default:false
+    isChequePayment: {
+      type: Boolean,
+      default: false,
     },
-    chequeAmount:{
-      type:Number,
-      default:0
+    chequeAmount: {
+      type: Number,
+      default: 0,
     },
-    isWalletPayment:{
-      type:Boolean,
-      default:false
+    isWalletPayment: {
+      type: Boolean,
+      default: false,
     },
-    walletAmountUsed:{
-      type:Number,
-      default:0
+    walletAmountUsed: {
+      type: Number,
+      default: 0,
     },
-    
-    
-
+    paymentStatus: {
+      type: String,
+      enum: ["Pending", "Paid", "Failed", "Refunded"],
+      default: "Pending",
+    },
     totalAmount: {
       type: Number,
       required: true,
     },
-    chequeImages: 
-        {
-          url: {
-            type: String,
-          },
-          uploadedAt: {
-            type: Date,
-            default: Date.now,
-          },
-        },
-
+    chequeImages: {
+      url: {
+        type: String,
+      },
+      uploadedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    },
     returnInfo: {
       reason: { type: String },
       requestDate: { type: Date, default: null },
@@ -162,7 +156,7 @@ const orderSchema = new mongoose.Schema(
         ref: "PartnerAddress",
         default: null,
       },
-      returnAndRefundTransactionId: { type: String, default: null },
+      refundTransactionId: { type: String, default: null },
       refundAmount: {
         type: Number,
         min: 0,
@@ -173,7 +167,10 @@ const orderSchema = new mongoose.Schema(
         enum: ["Initiated", "Processing", "Completed"],
         default: null,
       },
-      
+    },
+    deliveredAt: {
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }

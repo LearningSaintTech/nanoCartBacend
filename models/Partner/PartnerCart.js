@@ -8,6 +8,7 @@ const cartSchema = new Schema(
       ref: "Partner",
       required: [true, "partnerId is required"],
       unique: true,
+      index: true,
     },
     items: [
       {
@@ -63,6 +64,5 @@ const cartSchema = new Schema(
     timestamps: true,
   }
 );
-
 
 module.exports = mongoose.model("PartnerCart", cartSchema);

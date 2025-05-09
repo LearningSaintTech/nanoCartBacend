@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const partnerSchema = new mongoose.Schema({
-  partner: { // this is userId
+  partner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
   },
@@ -41,9 +41,9 @@ const partnerSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  isWalletCreated:{
-    type:Boolean,
-    default:false
+  isWalletCreated: {
+    type: Boolean,
+    default: false,
   },
   isAddress: {
     type: Boolean,
@@ -52,7 +52,6 @@ const partnerSchema = new mongoose.Schema({
   imageShop: {
     type: String,
   },
-  
 });
 
 module.exports = mongoose.model("Partner", partnerSchema);
