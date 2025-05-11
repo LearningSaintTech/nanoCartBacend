@@ -20,13 +20,10 @@ router.post('/create', verifyToken, isUser, createUserOrder);
 // Verify payment for online orders
 router.post('/verify-payment', verifyToken, isUser, verifyPayment);
 
-// Fetch all user orders
+// Fetch all user orders-> orderHistroy
 router.get('/', verifyToken, isUser, fetchUserOrders);
 
-// Fetch confirmed user orders
-router.get('/confirmed', verifyToken, isUser, fetchConfirmedUserOrders);
-
-// Fetch specific order by orderId and all user orders
+// Fetch specific order by orderId 
 router.get('/:orderId', verifyToken, isUser, fetchOrderByOrderId);
 
 // Cancel an order

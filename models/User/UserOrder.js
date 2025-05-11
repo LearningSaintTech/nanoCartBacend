@@ -127,7 +127,7 @@ const orderSchema = new mongoose.Schema(
           lowercase: true,
           required: true,
         },
-        value: {
+        values: {
           type: String,
           required: true,
         },
