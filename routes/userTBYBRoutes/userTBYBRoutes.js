@@ -1,21 +1,23 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const multer = require("multer");
+const multer = require('multer');
+const {generateTBYBImage}=require("../../controllers/userTBYBController/userTBYBController")
+const {verifyToken}=require("../../middlewares/verifyToken")
+const {isUser}=require("../../middlewares/isUser")
+
+// Configure multer for file uploads
+// Configure Multer for handling file uploads
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-const {
-  uploadTBYBImage,
-  getTBYBImages,
-} = require("../../controllers/userTBYBController/userTBYB");
 
-const { verifyToken } = require("../../middlewares/verifyToken");
-const {isUser}=require("../../middlewares/isUser")
-
-// POST route to upload TBYB image
-router.post("/upload", verifyToken, isUser, upload.single("image"), uploadTBYBImage);
-
-// GET route to fetch uploaded TBYB images for a user
-router.get("/", verifyToken, isUser, getTBYBImages);
+// Route to generate TBYB image
+router.post(
+  '/generate',
+  verifyToken,
+  isUser,
+  upload.single('userImage'),
+  generateTBYBImage
+);
 
 module.exports = router;

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { MAX } = require("uuid");
 
 const TBYBSchema = new mongoose.Schema({
   userId: {
@@ -8,7 +9,11 @@ const TBYBSchema = new mongoose.Schema({
   },
   images: [
     {
-      normalImage: {
+      itemImage:{
+         type: String,
+        required: true,
+      },
+      userImage: {
         type: String,
         required: true,
       },
@@ -21,6 +26,11 @@ const TBYBSchema = new mongoose.Schema({
       },
     },
   ],
+  trialOnNumber:{
+    type:Number,
+    default:0,
+    MAX:10
+  }
 });
 
 module.exports = mongoose.model("UserTBYB", TBYBSchema);
