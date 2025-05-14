@@ -6,6 +6,7 @@ const axios = require("axios");
 const { uploadImageToS3 } = require("../../utils/s3Upload");
 const {apiResponse}=require("../../utils/apiResponse")
 
+
 // Utility function to poll prediction status
 const pollPredictionStatus = async (predictionId, apiKey) => {
   const maxAttempts = 12; // 60 seconds / 5 seconds per attempt
@@ -41,14 +42,11 @@ const pollPredictionStatus = async (predictionId, apiKey) => {
 exports.generateTBYBImage = async (req, res) => {
   try {
     const { userId } = req.user;
-    console.log(userId)
-    console.log(req.body)
     const { itemId, color } = req.body;
-    console.log(req.file)
- 
+    console.log("req.file:", req.file);
 
     // Validate inputs
-    if (!userId || !itemId || !color) {
+    if (!userId || !itemId || !color || !req.file) {
       return res.status(400).json(
         apiResponse(400, false, "Missing required fields or user image")
       );
@@ -61,7 +59,7 @@ exports.generateTBYBImage = async (req, res) => {
         apiResponse(404, false, "Item not found")
       );
     }
-    const subCategory = item.subCategoryId.name;
+    const subCategory = item.subCategoryId?.name;
     if (!subCategory) {
       return res.status(400).json(
         apiResponse(400, false, "Subcategory not defined for this item")
@@ -85,7 +83,8 @@ exports.generateTBYBImage = async (req, res) => {
       );
     }
 
-    const itemImageUrl = colorData.images[0].url;
+    const itemImageUrl = colorData.images[0]?.url;
+    console.log("itemImageUrl:", itemImageUrl);
     if (!itemImageUrl) {
       return res.status(400).json(
         apiResponse(400, false, "No image available for the selected color")
@@ -93,9 +92,12 @@ exports.generateTBYBImage = async (req, res) => {
     }
 
     // Upload user image to S3
-    const folderName=`NanoCart/user/${userId}/image`
+    const folderName = `NanoCart/user/${userId}/image`;
     const userImageUrl = await uploadImageToS3(req.file, folderName);
-    console.log(userImageUrl)
+    console.log("userImageUrl:", userImageUrl);
+
+    // Log API key for debugging (remove in production)
+    console.log("FASHN_API_KEY:", process.env.FASHN_API_KEY);
 
     // Call the external API to initiate TBYB image generation
     const apiResponseData = await axios.post(
@@ -103,7 +105,7 @@ exports.generateTBYBImage = async (req, res) => {
       {
         model_image: userImageUrl,
         garment_image: itemImageUrl,
-        category: subCategory.toLowerCase(),
+        category: subCategory.toLowerCase(), // Fixed: Use subCategory
       },
       {
         headers: {
@@ -111,9 +113,15 @@ exports.generateTBYBImage = async (req, res) => {
           "Content-Type": "application/json",
         },
       }
-    );
+    ).catch((error) => {
+      if (error.response && error.response.status === 401) {
+        throw new Error("Unauthorized: Invalid Fashn.ai API key");
+      }
+      throw error;
+    });
 
     const predictionId = apiResponseData.data.id;
+    console.log("predictionId:", predictionId);
     if (!predictionId) {
       return res.status(500).json(
         apiResponse(500, false, "Failed to initiate TBYB image generation")
@@ -125,6 +133,7 @@ exports.generateTBYBImage = async (req, res) => {
       predictionId,
       process.env.FASHN_API_KEY
     );
+    console.log("TBYBImageUrl:", TBYBImageUrl);
 
     // Check if UserTBYB document exists
     let tbyb = await UserTBYB.findOne({ userId });
@@ -175,7 +184,7 @@ exports.generateTBYBImage = async (req, res) => {
   } catch (error) {
     console.error("Error in generateTBYBImage:", error);
     return res.status(500).json(
-      apiResponse(500, false, "Internal server error", error.message)
+      apiResponse(500, false, "Internal server error", null, error.message)
     );
   }
 };

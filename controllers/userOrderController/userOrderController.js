@@ -1,3 +1,6 @@
+
+
+
 const mongoose = require("mongoose");
 const UserOrder = require("../../models/User/UserOrder");
 const UserCart = require("../../models/User/UserCart");
@@ -6,35 +9,70 @@ const Item = require("../../models/Items/Item");
 const ItemDetail = require("../../models/Items/ItemDetail");
 const User = require("../../models/User/User");
 const { apiResponse } = require("../../utils/apiResponse");
-const razorpay = require("../../config/razorpay");
-const crypto = require("crypto");
+const { randomUUID } = require("crypto");
+const phonepeClient = require("../../config/phonepeClient");
+const { StandardCheckoutPayRequest, RefundRequest } = require("pg-sdk-node");
 
-// Helper function to validate and update stock
-const validateAndUpdateStock = async (orderDetails, session) => {
+// Simple logging function to track actions and errors with timestamps and request IDs
+const log = (message, requestId) => {
+  console.log(`[${new Date().toISOString()}] [RequestID: ${requestId}] ${message}`);
+};
+
+// Retry helper for PhonePe API calls to handle transient failures with exponential backoff
+const withRetry = async (operation, maxRetries = 3, baseDelay = 1000, requestId) => {
+  // Attempt the operation up to maxRetries times
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Execute operation with a 10-second timeout
+      return await Promise.race([
+        operation(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("PhonePe API timeout")), 10000)
+        ),
+      ]);
+    } catch (error) {
+      // Log failure and retry unless it's the last attempt
+      log(`Attempt ${attempt} failed: ${error.message}`, requestId);
+      if (attempt === maxRetries) throw error;
+      // Apply exponential backoff delay before next attempt
+      const delay = baseDelay * Math.pow(2, attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+};
+
+// Helper function to validate order items and update stock atomically
+const validateAndUpdateStock = async (orderDetails, session, requestId) => {
+  // Iterate through each order item to validate and update stock
   for (const orderItem of orderDetails) {
-    // Validate item details
+    // Validate itemId
     if (!orderItem.itemId || !mongoose.Types.ObjectId.isValid(orderItem.itemId)) {
       throw new Error("Valid itemId is required");
     }
+    // Validate quantity
     if (!orderItem.quantity || typeof orderItem.quantity !== "number" || orderItem.quantity < 1) {
       throw new Error("Valid quantity (minimum 1) is required");
     }
+    // Validate size
     if (!orderItem.size || typeof orderItem.size !== "string" || orderItem.size.trim() === "") {
       throw new Error("Valid size is required");
     }
+    // Validate color
     if (!orderItem.color || typeof orderItem.color !== "string" || orderItem.color.trim() === "") {
       throw new Error("Valid color is required");
     }
+    // Validate skuId
     if (!orderItem.skuId || typeof orderItem.skuId !== "string" || orderItem.skuId.trim() === "") {
       throw new Error("Valid skuId is required");
     }
 
-    // Check stock availability
+    // Fetch item details from ItemDetail collection
     const itemDetail = await ItemDetail.findOne({ itemId: orderItem.itemId }).session(session);
     if (!itemDetail) {
       throw new Error(`Item detail for itemId ${orderItem.itemId} not found`);
     }
 
+    // Check if the requested color exists
     const colorEntry = itemDetail.imagesByColor.find(
       (entry) => entry.color.toLowerCase() === orderItem.color.toLowerCase()
     );
@@ -42,6 +80,7 @@ const validateAndUpdateStock = async (orderDetails, session) => {
       throw new Error(`Color ${orderItem.color} not found for itemId ${orderItem.itemId}`);
     }
 
+    // Check if the requested size and skuId exist
     const sizeEntry = colorEntry.sizes.find(
       (s) => s.size === orderItem.size && s.skuId === orderItem.skuId
     );
@@ -51,13 +90,14 @@ const validateAndUpdateStock = async (orderDetails, session) => {
       );
     }
 
+    // Verify sufficient stock
     if (!sizeEntry.stock || sizeEntry.stock < orderItem.quantity) {
       throw new Error(
         `Insufficient stock for itemId ${orderItem.itemId}, size ${orderItem.size}, skuId ${orderItem.skuId}. Available: ${sizeEntry.stock || 0}, Requested: ${orderItem.quantity}`
       );
     }
 
-    // Update stock
+    // Update stock by decrementing the requested quantity
     await ItemDetail.updateOne(
       {
         itemId: orderItem.itemId,
@@ -81,7 +121,7 @@ const validateAndUpdateStock = async (orderDetails, session) => {
   }
 };
 
-// Function to populate order details
+// Function to enrich order data with user, item, address, and image details
 const populateOrderDetails = async (orders, userId) => {
   try {
     // Validate userId
@@ -89,31 +129,30 @@ const populateOrderDetails = async (orders, userId) => {
       throw new Error("Invalid userId");
     }
 
-    // Convert single order to array if not already
+    // Ensure orders is an array for consistent processing
     const ordersArray = Array.isArray(orders) ? orders : [orders];
 
-    // Populate user details (name, email, phone, role)
+    // Populate user details for orders
     const populatedOrders = await UserOrder.populate(ordersArray, {
       path: "userId",
       model: "User",
       select: "name email phone role",
     });
 
-    // Enrich orders with item details, shipping address, and pickup location
+    // Process each order to enrich details
     const enrichedOrders = await Promise.all(
       populatedOrders.map(async (order) => {
-        // Populate itemId in orderDetails with name, description, MRP, discountedPrice
+        // Populate item details for order items
         const populatedOrder = await UserOrder.populate(order, {
           path: "orderDetails.itemId",
           model: "Item",
           select: "name description MRP discountedPrice",
         });
 
-        // Initialize shippingAddress and pickupLocation
         let shippingAddress = null;
         let pickupLocation = null;
 
-        // Fetch shippingAddressId from UserAddress
+        // Fetch shipping address if provided
         if (
           order.shippingAddressId &&
           mongoose.Types.ObjectId.isValid(order.shippingAddressId)
@@ -125,8 +164,7 @@ const populateOrderDetails = async (orders, userId) => {
             });
             if (userAddress) {
               const matchedAddress = userAddress.addressDetail.find(
-                (addr) =>
-                  addr._id.toString() === order.shippingAddressId.toString()
+                (addr) => addr._id.toString() === order.shippingAddressId.toString()
               );
               if (matchedAddress) {
                 shippingAddress = {
@@ -153,20 +191,19 @@ const populateOrderDetails = async (orders, userId) => {
           }
         }
 
-        // Enrich orderDetails with image from ItemDetail based on itemId, color, size, and skuId
+        // Enrich each order detail with item and image data
         const enrichedOrderDetails = await Promise.all(
           populatedOrder.orderDetails.map(async (detail) => {
             let image = null;
 
-            // Fetch image from ItemDetail
+            // Fetch primary image for the item
             try {
               const itemDetail = await ItemDetail.findOne({
                 itemId: detail.itemId._id,
               });
               if (itemDetail) {
                 const colorEntry = itemDetail.imagesByColor.find(
-                  (entry) =>
-                    entry.color.toLowerCase() === detail.color.toLowerCase()
+                  (entry) => entry.color.toLowerCase() === detail.color.toLowerCase()
                 );
                 if (colorEntry) {
                   const sizeEntry = colorEntry.sizes.find(
@@ -187,7 +224,7 @@ const populateOrderDetails = async (orders, userId) => {
               );
             }
 
-            // Fetch pickupLocationId for returnInfo
+            // Fetch pickup location for return
             if (
               detail.returnInfo &&
               detail.returnInfo.pickupLocationId &&
@@ -201,8 +238,7 @@ const populateOrderDetails = async (orders, userId) => {
                 if (userAddress) {
                   const matchedAddress = userAddress.addressDetail.find(
                     (addr) =>
-                      addr._id.toString() ===
-                      detail.returnInfo.pickupLocationId.toString()
+                      addr._id.toString() === detail.returnInfo.pickupLocationId.toString()
                   );
                   if (matchedAddress) {
                     pickupLocation = {
@@ -227,589 +263,795 @@ const populateOrderDetails = async (orders, userId) => {
                   `[populateOrderDetails] Error fetching pickupLocationId ${detail.returnInfo.pickupLocationId} for order ${order.orderId}:`,
                   error.message
                 );
-        }
-      }
-
-      // Fetch pickupLocationId for exchangeInfo
-      if (
-        detail.exchangeInfo &&
-        detail.exchangeInfo.pickupLocationId &&
-        mongoose.Types.ObjectId.isValid(detail.exchangeInfo.pickupLocationId)
-      ) {
-        try {
-          const userAddress = await UserAddress.findOne({
-            userId: order.userId._id,
-            "addressDetail._id": detail.exchangeInfo.pickupLocationId,
-          });
-          if (userAddress) {
-            const matchedAddress = userAddress.addressDetail.find(
-              (addr) =>
-                addr._id.toString() ===
-                detail.exchangeInfo.pickupLocationId.toString()
-            );
-            if (matchedAddress) {
-              pickupLocation = {
-                _id: matchedAddress._id,
-                name: matchedAddress.name,
-                phoneNumber: matchedAddress.phoneNumber,
-                email: matchedAddress.email,
-                pincode: matchedAddress.pincode,
-                addressLine1: matchedAddress.addressLine1,
-                addressLine2: matchedAddress.addressLine2 || "",
-                cityTown: matchedAddress.cityTown,
-                state: matchedAddress.state,
-                country: matchedAddress.country,
-                addressType: matchedAddress.addressType,
-                isDefault: matchedAddress.isDefault,
-              };
-              detail.exchangeInfo.pickupLocationId = pickupLocation;
+              }
             }
-          }
-        } catch (error) {
-          console.error(
-            `[populateOrderDetails] Error fetching pickupLocationId ${detail.exchangeInfo.pickupLocationId} for order ${order.orderId}:`,
-            error.message
-          );
-        }
-      }
 
-      // Return enriched detail
-      return {
-        ...detail.toObject(),
-        itemId: {
-          _id: detail.itemId._id,
-          name: detail.itemId.name,
-          description: detail.itemId.description,
-          MRP: detail.itemId.MRP,
-          discountedPrice: detail.itemId.discountedPrice,
-          image, // Image from ItemDetail
-        },
-        returnInfo: detail.returnInfo
-          ? {
-              ...detail.returnInfo.toObject(),
-              pickupLocationId: detail.returnInfo.pickupLocationId,
+            // Fetch pickup location for exchange
+            if (
+              detail.exchangeInfo &&
+              detail.exchangeInfo.pickupLocationId &&
+              mongoose.Types.ObjectId.isValid(detail.exchangeInfo.pickupLocationId)
+            ) {
+              try {
+                const userAddress = await UserAddress.findOne({
+                  userId: order.userId._id,
+                  "addressDetail._id": detail.exchangeInfo.pickupLocationId,
+                });
+                if (userAddress) {
+                  const matchedAddress = userAddress.addressDetail.find(
+                    (addr) =>
+                      addr._id.toString() === detail.exchangeInfo.pickupLocationId.toString()
+                  );
+                  if (matchedAddress) {
+                    pickupLocation = {
+                      _id: matchedAddress._id,
+                      name: matchedAddress.name,
+                      phoneNumber: matchedAddress.phoneNumber, // Fixed typo: matedAddress -> matchedAddress
+                      email: matchedAddress.email,
+                      pincode: matchedAddress.pincode,
+                      addressLine1: matchedAddress.addressLine1,
+                      addressLine2: matchedAddress.addressLine2 || "",
+                      cityTown: matchedAddress.cityTown,
+                      state: matchedAddress.state,
+                      country: matchedAddress.country,
+                      addressType: matchedAddress.addressType,
+                      isDefault: matchedAddress.isDefault,
+                    };
+                    detail.exchangeInfo.pickupLocationId = pickupLocation;
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `[populateOrderDetails] Error fetching pickupLocationId ${detail.exchangeInfo.pickupLocationId} for order ${order.orderId}:`,
+                  error.message
+                );
+              }
             }
-          : null,
-        exchangeInfo: detail.exchangeInfo
-          ? {
-              ...detail.exchangeInfo.toObject(),
-              pickupLocationId: detail.exchangeInfo.pickupLocationId,
-            }
-          : null,
-      };
-    })
-  );
 
-  // Return enriched order
-  return {
-    ...populatedOrder.toObject(),
-    shippingAddressId: shippingAddress,
-    orderDetails: enrichedOrderDetails,
-  };
-})
-);
+            // Return enriched order detail
+            return {
+              ...detail.toObject(),
+              itemId: {
+                _id: detail.itemId._id,
+                name: detail.itemId.name,
+                description: detail.itemId.description,
+                MRP: detail.itemId.MRP,
+                discountedPrice: detail.itemId.discountedPrice,
+                image,
+              },
+              returnInfo: detail.returnInfo
+                ? {
+                    ...detail.returnInfo.toObject(),
+                    pickupLocationId: detail.returnInfo.pickupLocationId,
+                  }
+                : null,
+              exchangeInfo: detail.exchangeInfo
+                ? {
+                    ...detail.exchangeInfo.toObject(),
+                    pickupLocationId: detail.exchangeInfo.pickupLocationId,
+                  }
+                : null,
+            };
+          })
+        );
 
-// Return single order or array based on input
-return Array.isArray(orders) ? enrichedOrders : enrichedOrders[0];
-} catch (error) {
-console.error("Error populating order details:", error.message);
-throw error;
-}
+        // Return enriched order
+        return {
+          ...populatedOrder.toObject(),
+          shippingAddressId: shippingAddress,
+          orderDetails: enrichedOrderDetails,
+        };
+      })
+    );
+
+    // Return single order or array based on input
+    return Array.isArray(orders) ? enrichedOrders : enrichedOrders[0];
+  } catch (error) {
+    console.error("Error populating order details:", error.message);
+    throw error;
+  }
 };
 
-// Create Order Controller
+
+
+// Controller to create a new order (COD or Online)
 exports.createUserOrder = async (req, res) => {
-const session = await mongoose.startSession();
-session.startTransaction();
+  // Start a MongoDB transaction session for atomic operations
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
 
-try {
-const { userId } = req.user;
-const {
-  orderDetails,
-  invoice,
-  shippingAddressId,
-  paymentMethod,
-  totalAmount,
-} = req.body;
+  try {
+    // Log the start of order creation
+    log("Creating new order", requestId);
+    // Extract userId from authenticated user and request body details
+    const { userId } = req.user;
+    const { orderDetails, invoice, shippingAddressId, paymentMethod, totalAmount } = req.body;
 
-// Validate userId
-if (!mongoose.Types.ObjectId.isValid(userId)) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(apiResponse(400, false, "Invalid userId"));
-}
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Invalid userId"));
+    }
 
-// Validate required fields
-if (!orderDetails || !Array.isArray(orderDetails) || orderDetails.length === 0) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(
-    apiResponse(400, false, "orderDetails array is required and cannot be empty")
-  );
-}
+    // Validate orderDetails array
+    if (!orderDetails || !Array.isArray(orderDetails) || orderDetails.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "orderDetails array is required and cannot be empty")
+      );
+    }
 
-if (!Array.isArray(invoice) || invoice.length === 0) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(
-    apiResponse(400, false, "Non-empty invoice array is required")
-  );
-}
+    // Validate invoice array
+    if (!Array.isArray(invoice) || invoice.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Non-empty invoice array is required")
+      );
+    }
 
-// Validate invoice entries
-for (const entry of invoice) {
-  if (!entry.key || typeof entry.key !== "string" || entry.key.trim() === "") {
+    // Validate each invoice entry
+    for (const entry of invoice) {
+      if (!entry.key || typeof entry.key !== "string" || entry.key.trim() === "") {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Each invoice entry must have a valid key")
+        );
+      }
+      if (!entry.values || typeof entry.values !== "string" || entry.values.trim() === "") {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Each invoice entry must have valid values")
+        );
+      }
+    }
+
+    // Validate totalAmount
+    if (typeof totalAmount !== "number" || totalAmount <= 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Valid totalAmount is required and must be positive")
+      );
+    }
+
+    // Validate paymentMethod
+    if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Valid payment method (Online or COD) is required")
+      );
+    }
+
+    // Validate shippingAddressId if provided
+    if (shippingAddressId) {
+      if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Invalid shippingAddressId")
+        );
+      }
+      // Check if the address exists for the user
+      const addressExists = await UserAddress.findOne({
+        userId,
+        "addressDetail._id": shippingAddressId,
+      }).session(session);
+      if (!addressExists) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json(
+          apiResponse(404, false, "Shipping address not found")
+        );
+      }
+    }
+
+    // Fetch user cart
+    const userCart = await UserCart.findOne({ userId }).session(session);
+    if (!userCart) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(
+        apiResponse(404, false, "User cart not found")
+      );
+    }
+
+    // Calculate subtotal from orderDetails
+    let subtotal = 0;
+    for (const orderItem of orderDetails) {
+      // Validate itemId
+      if (!orderItem.itemId || !mongoose.Types.ObjectId.isValid(orderItem.itemId)) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Valid itemId is required")
+        );
+      }
+      // Validate quantity
+      if (!orderItem.quantity || typeof orderItem.quantity !== "number" || orderItem.quantity < 1) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Valid quantity (minimum 1) is required")
+        );
+      }
+      // Validate size
+      if (!orderItem.size || typeof orderItem.size !== "string" || orderItem.size.trim() === "") {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Valid size is required")
+        );
+      }
+      // Validate color
+      if (!orderItem.color || typeof orderItem.color !== "string" || orderItem.color.trim() === "") {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Valid color is required")
+        );
+      }
+      // Validate skuId
+      if (!orderItem.skuId || typeof orderItem.skuId !== "string" || orderItem.skuId.trim() === "") {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "Valid skuId is required")
+        );
+      }
+
+      // Check if item exists in cart
+      const cartItem = userCart.items.find(
+        (item) =>
+          item.itemId.toString() === orderItem.itemId.toString() &&
+          item.size === orderItem.size &&
+          item.color === orderItem.color &&
+          item.skuId === orderItem.skuId
+      );
+      if (!cartItem) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json(
+          apiResponse(
+            404,
+            false,
+            `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`
+          )
+        );
+      }
+
+      // Fetch item details to get discountedPrice
+      const item = await Item.findById(orderItem.itemId).session(session);
+      if (!item) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json(
+          apiResponse(404, false, `Item with ID ${orderItem.itemId} not found`)
+        );
+      }
+
+      // Use discountedPrice or MRP if discountedPrice is not available
+      const itemPrice = item.discountedPrice || item.MRP;
+      if (typeof itemPrice !== "number" || itemPrice <= 0) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, `Invalid price for itemId ${orderItem.itemId}`)
+        );
+      }
+
+      // Add to subtotal (discountedPrice * quantity)
+      subtotal += itemPrice * orderItem.quantity;
+    }
+
+    // Extract invoice details
+    const invoiceDetails = {
+      gst: 0,
+      couponDiscount: 0,
+      shippingCharge: 0,
+      codCharge: 0,
+    };
+
+    // Parse invoice entries
+    for (const entry of invoice) {
+      const key = entry.key.trim().toLowerCase();
+      const value = parseFloat(entry.values);
+      if (isNaN(value) || value < 0) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, `Invalid invoice value for key "${key}": ${entry.values}`)
+        );
+      }
+      switch (key) {
+        case "gst":
+          invoiceDetails.gst = value;
+          break;
+        case "coupon discount":
+          invoiceDetails.couponDiscount = value;
+          break;
+        case "shipping charge":
+          invoiceDetails.shippingCharge = value;
+          break;
+        case "cod charge":
+          invoiceDetails.codCharge = value;
+          break;
+        default:
+          // Ignore unrecognized keys
+          break;
+      }
+    }
+
+    // Validate required invoice entries
+    if (invoiceDetails.gst === 0 && subtotal > 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "GST value is required in invoice when subtotal is positive")
+      );
+    }
+
+    // Validate coupon discount
+    if (invoiceDetails.couponDiscount < 0 || invoiceDetails.couponDiscount > subtotal) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Invalid coupon discount: ${invoiceDetails.couponDiscount}. Must be non-negative and not exceed subtotal (${subtotal.toFixed(2)})`
+        )
+      );
+    }
+
+    // Validate shipping charge (assumed 0; adjust if dynamic)
+    if (invoiceDetails.shippingCharge !== 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Shipping charge mismatch. Expected: 0, Received: ${invoiceDetails.shippingCharge.toFixed(2)}`
+        )
+      );
+    }
+
+    // Calculate total amount using invoice values
+    const calculatedTotalAmount =
+      subtotal +
+      invoiceDetails.gst +
+      (paymentMethod === "COD" ? invoiceDetails.codCharge : 0) +
+      invoiceDetails.shippingCharge -
+      invoiceDetails.couponDiscount;
+
+    // Validate calculated total against provided totalAmount
+    if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Total amount mismatch. Expected: ${calculatedTotalAmount.toFixed(2)}, Received: ${totalAmount.toFixed(2)}`
+        )
+      );
+    }
+
+    // Update stock for COD orders
+    if (paymentMethod === "COD") {
+      await validateAndUpdateStock(orderDetails, session, requestId);
+    }
+
+    // Generate unique order and merchant IDs
+    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const merchantOrderId = randomUUID();
+
+    // Prepare order data
+    const orderData = {
+      orderId,
+      userId,
+      orderDetails: orderDetails.map((item) => ({
+        itemId: item.itemId,
+        quantity: item.quantity,
+        size: item.size,
+        color: item.color,
+        skuId: item.skuId,
+        addedAt: new Date(),
+        isReturn: false,
+        isExchange: false,
+      })),
+      invoice: invoice.map((entry) => ({
+        key: entry.key.trim().toLowerCase(),
+        values: entry.values.trim(),
+      })),
+      shippingAddressId,
+      paymentMethod,
+      isOrderPlaced: false,
+      totalAmount,
+      orderStatus: "Initiated",
+      paymentStatus: "Pending",
+      phonepeOrderId: null,
+      phonepeMerchantOrderId: null,
+      checkoutPageUrl: null,
+      isOrderCancelled: false,
+      deliveryDate: null,
+      couponDiscount: invoiceDetails.couponDiscount,
+    };
+
+    // Handle COD orders
+    if (paymentMethod === "COD") {
+      orderData.isOrderPlaced = true;
+      orderData.orderStatus = "Confirmed";
+      orderData.paymentStatus = "Pending";
+    } else if (paymentMethod === "Online") {
+      // Create PhonePe payment request
+      const request = StandardCheckoutPayRequest.builder()
+        .merchantOrderId(merchantOrderId)
+        .amount(totalAmount * 100) // Convert to paise
+        .redirectUrl(process.env.PHONEPE_REDIRECT_URL || "https://your-merchant.com/redirect")
+        .build();
+
+      // Initiate payment with retry logic
+      const response = await withRetry(
+        () => phonepeClient.initiatePayment(request),
+        3,
+        1000,
+        requestId
+      );
+      orderData.phonepeOrderId = response.orderId;
+      orderData.phonepeMerchantOrderId = merchantOrderId;
+      orderData.checkoutPageUrl = response.redirectUrl;
+    }
+
+    // Save the order
+    const newOrder = new UserOrder(orderData);
+    const savedOrder = await newOrder.save({ session });
+
+    // Remove ordered items from cart
+    userCart.items = userCart.items.filter(
+      (cartItem) =>
+        !orderDetails.some(
+          (orderItem) =>
+            orderItem.itemId.toString() === cartItem.itemId.toString() &&
+            orderItem.size === cartItem.size &&
+            orderItem.color === cartItem.color &&
+            orderItem.skuId === cartItem.skuId
+        )
+    );
+    await userCart.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // Populate order details with additional data
+    const populatedOrder = await populateOrderDetails(savedOrder, userId);
+
+    // Add checkout URL for online payments
+    if (paymentMethod === "Online") {
+      populatedOrder.checkoutPageUrl = savedOrder.checkoutPageUrl;
+    }
+
+    // Log success and return response
+    log(`Order created successfully: ${orderId}`, requestId);
+    return res.status(201).json(
+      apiResponse(201, true, "Order created successfully", populatedOrder)
+    );
+  } catch (error) {
+    // Roll back transaction on error
     await session.abortTransaction();
     session.endSession();
+    log(`Error creating order: ${error.message}`, requestId);
     return res.status(400).json(
-      apiResponse(400, false, "Each invoice entry must have a valid key")
+      apiResponse(400, false, error.message || "Error while creating order")
     );
   }
-  if (!entry.values || typeof entry.values !== "string" || entry.values.trim() === "") {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Each invoice entry must have valid values")
-    );
-  }
-}
-
-// Validate totalAmount
-if (typeof totalAmount !== "number" || totalAmount <= 0) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(
-    apiResponse(400, false, "Valid totalAmount is required and must be positive")
-  );
-}
-
-// Validate payment method
-if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(
-    apiResponse(400, false, "Valid payment method (Online or COD) is required")
-  );
-}
-
-// Validate shippingAddressId if provided
-if (shippingAddressId) {
-  if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Invalid shippingAddressId")
-    );
-  }
-  const addressExists = await UserAddress.findOne({
-    userId,
-    "addressDetail._id": shippingAddressId,
-  }).session(session);
-  if (!addressExists) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(404).json(
-      apiResponse(404, false, "Shipping address not found")
-    );
-  }
-}
-
-// Validate orderDetails against UserCart
-const userCart = await UserCart.findOne({ userId }).session(session);
-if (!userCart) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(404).json(
-    apiResponse(404, false, "User cart not found")
-  );
-}
-
-for (const orderItem of orderDetails) {
-  if (!orderItem.itemId || !mongoose.Types.ObjectId.isValid(orderItem.itemId)) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Valid itemId is required")
-    );
-  }
-  if (!orderItem.quantity || typeof orderItem.quantity !== "number" || orderItem.quantity < 1) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Valid quantity (minimum 1) is required")
-    );
-  }
-  if (!orderItem.size || typeof orderItem.size !== "string" || orderItem.size.trim() === "") {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Valid size is required")
-    );
-  }
-  if (!orderItem.color || typeof orderItem.color !== "string" || orderItem.color.trim() === "") {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Valid color is required")
-    );
-  }
-  if (!orderItem.skuId || typeof orderItem.skuId !== "string" || orderItem.skuId.trim() === "") {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(400).json(
-      apiResponse(400, false, "Valid skuId is required")
-    );
-  }
-
-  // Check if item exists in UserCart
-  const cartItem = userCart.items.find(
-    (item) =>
-      item.itemId.toString() === orderItem.itemId.toString() &&
-      item.size === orderItem.size &&
-      item.color === orderItem.color &&
-      item.skuId === orderItem.skuId
-  );
-  if (!cartItem) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(404).json(
-      apiResponse(
-        404,
-        false,
-        `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`
-      )
-    );
-  }
-}
-
-// For COD: Validate and update stock before creating order
-if (paymentMethod === "COD") {
-  await validateAndUpdateStock(orderDetails, session);
-}
-
-// Generate unique orderId
-const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-// Initialize order data
-const orderData = {
-  orderId,
-  userId,
-  orderDetails: orderDetails.map((item) => ({
-    itemId: item.itemId,
-    quantity: item.quantity,
-    size: item.size,
-    color: item.color,
-    skuId: item.skuId,
-    addedAt: new Date(),
-    isReturn: false,
-    isExchange: false,
-  })),
-  invoice: invoice.map((entry) => ({
-    key: entry.key.trim().toLowerCase(),
-    values: entry.values.trim(),
-  })),
-  shippingAddressId,
-  paymentMethod,
-  isOrderPlaced: false,
-  totalAmount,
-  orderStatus: "Initiated",
-  paymentStatus: "Pending",
-  razorpayOrderId: null,
-  razorpayPaymentId: null,
-  razorpaySignature: null,
-  isOrderCancelled: false,
-  deliveryDate: null,
 };
 
-// Handle payment method-specific logic
-if (paymentMethod === "COD") {
-  orderData.isOrderPlaced = true;
-  orderData.orderStatus = "Confirmed";
-  orderData.paymentStatus = "Pending";
-} else if (paymentMethod === "Online") {
-  const options = {
-    amount: totalAmount * 100, // Convert to paise
-    currency: "INR",
-    receipt: `receipt_${Date.now()}`,
-    payment_capture: 1,
-  };
-  const order = await razorpay.orders.create(options);
-  orderData.razorpayOrderId = order.id;
-}
-
-// Create and save new order
-const newOrder = new UserOrder(orderData);
-const savedOrder = await newOrder.save({ session });
-
-// Remove cart items that were ordered
-userCart.items = userCart.items.filter(
-  (cartItem) =>
-    !orderDetails.some(
-      (orderItem) =>
-        orderItem.itemId.toString() === cartItem.itemId.toString() &&
-        orderItem.size === cartItem.size &&
-        orderItem.color === cartItem.color &&
-        orderItem.skuId === cartItem.skuId
-    )
-);
-await userCart.save({ session });
-
-// Commit the transaction
-await session.commitTransaction();
-session.endSession();
-
-// Populate order details for response
-const populatedOrder = await populateOrderDetails(savedOrder, userId);
-
-return res.status(201).json(
-  apiResponse(201, true, "Order created successfully", populatedOrder)
-);
-} catch (error) {
-await session.abortTransaction();
-session.endSession();
-console.error("Error creating order:", error.message);
-return res.status(400).json(
-  apiResponse(400, false, error.message || "Error while creating order")
-);
-}
-};
-
-// Verify Payment Controller
+// Controller to verify payment status for Online orders
 exports.verifyPayment = async (req, res) => {
-const session = await mongoose.startSession();
-session.startTransaction();
+  // Start a MongoDB transaction session
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
 
-try {
-const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-
-// Validate required fields
-if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(apiResponse(400, false, "Missing required payment details"));
-}
-
-// Verify Razorpay signature
-const body = razorpay_order_id + "|" + razorpay_payment_id;
-const expectedSignature = crypto
-  .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-  .update(body)
-  .digest("hex");
-
-if (expectedSignature !== razorpay_signature) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(400).json(apiResponse(400, false, "Invalid signature"));
-}
-
-// Find the order
-const userOrder = await UserOrder.findOne({ razorpayOrderId: razorpay_order_id }).session(session);
-if (!userOrder) {
-  await session.abortTransaction();
-  session.endSession();
-  return res.status(404).json(apiResponse(404, false, "Order not found"));
-}
-
-// Validate and update stock for online payment
-await validateAndUpdateStock(userOrder.orderDetails, session);
-
-// Update order with payment details
-const updatedOrder = await UserOrder.findOneAndUpdate(
-  { razorpayOrderId: razorpay_order_id },
-  {
-    $set: {
-      paymentStatus: "Paid",
-      razorpayPaymentId: razorpay_payment_id,
-      razorpaySignature: razorpay_signature,
-      isOrderPlaced: true,
-      orderStatus: "Confirmed",
-    },
-  },
-  { new: true, session }
-);
-
-// Commit the transaction
-await session.commitTransaction();
-session.endSession();
-
-// Populate order details for response
-const populatedOrder = await populateOrderDetails(updatedOrder, userOrder.userId);
-
-return res.status(200).json(
-  apiResponse(200, true, "Payment verified and stock updated successfully", populatedOrder)
-);
-} catch (error) {
-await session.abortTransaction();
-session.endSession();
-console.error("Error verifying payment:", error.message);
-
-// If stock is insufficient, mark payment as failed
-if (error.message.includes("Insufficient stock")) {
-  await UserOrder.findOneAndUpdate(
-    { razorpayOrderId: req.body.razorpay_order_id },
-    { $set: { paymentStatus: "Failed", orderStatus: "Cancelled", isOrderCancelled: true } }
-  );
-  return res.status(400).json(apiResponse(400, false, error.message));
-}
-
-return res.status(500).json(
-  apiResponse(500, false, error.message || "Error verifying payment")
-);
-}
-};
-
-
-// Fetch All User Orders Controller
-exports.fetchUserOrders = async (req, res) => {
   try {
+    // Log the start of payment verification
+    log("Verifying payment", requestId);
+    // Extract userId and phonepeMerchantOrderId
     const { userId } = req.user;
+    const { phonepeMerchantOrderId } = req.body;
 
-    // Validate userId
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json(apiResponse(400, "Invalid userId", null));
+    // Validate phonepeMerchantOrderId
+    if (!phonepeMerchantOrderId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Missing phonepeMerchantOrderId"));
     }
 
-    // Fetch orders
-    let orders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
-
-    if (!orders || orders.length === 0) {
-      return res
-        .status(200)
-        .json(apiResponse(200, "No user orders found", []));
+    // Find order by merchant order ID and userId
+    const userOrder = await UserOrder.findOne({ phonepeMerchantOrderId, userId }).session(session);
+    if (!userOrder) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Order not found or not authorized"));
     }
 
-    // Populate order details
-    const enrichedOrders = await populateOrderDetails(orders, userId);
+    // Check if order is expired (older than 30 minutes)
+    const orderAge = (Date.now() - userOrder.createdAt.getTime()) / (1000 * 60);
+    if (orderAge > 30 && userOrder.paymentStatus === "Pending") {
+      userOrder.paymentStatus = "Expired";
+      userOrder.orderStatus = "Cancelled";
+      userOrder.isOrderCancelled = true;
+      await userOrder.save({ session });
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Order has expired"));
+    }
 
-    return res
-      .status(200)
-      .json(apiResponse(200, "User orders fetched successfully", enrichedOrders));
-  } catch (error) {
-    console.error("Error fetching user orders:", error.message);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          error.message || "Server error while fetching user orders",
-          null
-        )
+    // Check if payment is already processed
+    if (["Paid", "Failed", "Expired"].includes(userOrder.paymentStatus)) {
+      await session.commitTransaction();
+      session.endSession();
+      const populatedOrder = await populateOrderDetails(userOrder, userId);
+      return res.status(200).json(
+        apiResponse(200, true, `Payment already processed as ${userOrder.paymentStatus}`, populatedOrder)
       );
+    }
+
+    // Check payment status with PhonePe
+    const response = await withRetry(
+      () => phonepeClient.checkStatus(phonepeMerchantOrderId),
+      3,
+      1000,
+      requestId
+    );
+
+    // Handle payment states
+    switch (response.state) {
+      case "COMPLETED":
+        try {
+          // Update stock for order items
+          await validateAndUpdateStock(userOrder.orderDetails, session, requestId);
+
+          // Update order status
+          const updatedOrder = await UserOrder.findOneAndUpdate(
+            { phonepeMerchantOrderId, userId },
+            {
+              $set: {
+                paymentStatus: "Paid",
+                isOrderPlaced: true,
+                orderStatus: "Confirmed",
+              },
+            },
+            { new: true, session }
+          );
+
+          // Commit transaction
+          await session.commitTransaction();
+          session.endSession();
+
+          // Populate order details
+          const populatedOrder = await populateOrderDetails(updatedOrder, userId);
+          log(`Payment verified successfully: ${phonepeMerchantOrderId}`, requestId);
+          return res.status(200).json(
+            apiResponse(200, true, "Payment verified and stock updated successfully", populatedOrder)
+          );
+        } catch (stockError) {
+          // Handle stock errors within transaction
+          if (stockError.message.includes("Insufficient stock")) {
+            await UserOrder.findOneAndUpdate(
+              { phonepeMerchantOrderId, userId },
+              { $set: { paymentStatus: "Failed", orderStatus: "Cancelled", isOrderCancelled: true } },
+              { session }
+            );
+            await session.commitTransaction();
+            session.endSession();
+            log(`Stock error during payment verification: ${stockError.message}`, requestId);
+            return res.status(400).json(apiResponse(400, false, stockError.message));
+          }
+          throw stockError;
+        }
+
+      case "FAILED":
+      case "ATTEMPT_FAILED":
+        // Update order for failed payment
+        await UserOrder.findOneAndUpdate(
+          { phonepeMerchantOrderId, userId },
+          { $set: { paymentStatus: "Failed", orderStatus: "Cancelled", isOrderCancelled: true } },
+          { session }
+        );
+
+        // Commit transaction
+        await session.commitTransaction();
+        session.endSession();
+        log(`Payment failed: ${phonepeMerchantOrderId}`, requestId);
+        return res.status(400).json(apiResponse(400, false, "Payment failed"));
+
+      case "PENDING":
+      case "INITIATED":
+        // Handle pending states
+        await session.commitTransaction();
+        session.endSession();
+        return res.status(200).json(apiResponse(200, false, "Payment is still pending"));
+
+      default:
+        // Handle unexpected states
+        await session.commitTransaction();
+        session.endSession();
+        log(`Unexpected payment state: ${response.state} for ${phonepeMerchantOrderId}`, requestId);
+        return res.status(400).json(apiResponse(400, false, `Unexpected payment state: ${response.state}`));
+    }
+  } catch (error) {
+    // Roll back transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    log(`Error verifying payment: ${error.message}`, requestId);
+    return res.status(500).json(
+      apiResponse(500, false, error.message || "Error verifying payment")
+    );
   }
 };
 
+// Controller to handle PhonePe server-to-server callbacks
+exports.handlePhonePeCallback = async (req, res) => {
+  // Start a MongoDB transaction session
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
 
-
-// Fetch Specific Order and All User Orders Controller
-exports.fetchOrderByOrderId = async (req, res) => {
   try {
-    const { userId } = req.user;
-    const { orderId } = req.params;
+    // Log the start of callback processing
+    log("Processing PhonePe callback", requestId);
+    // Extract authorization header and response body
+    const authorizationHeader = req.headers["authorization"];
+    const responseBody = JSON.stringify(req.body);
 
-    // Validate userId
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json(apiResponse(400, "Invalid userId", null));
+    // Validate callback parameters
+    if (!authorizationHeader || !responseBody) {
+      await session.abortTransaction();
+      session.endSession();
+      log("Missing callback parameters", requestId);
+      return res.status(400).json(apiResponse(400, false, "Missing callback parameters"));
     }
 
-    // Validate orderId
-    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid orderId is required", null));
-    }
+    // Extract callback data (simplified; adjust based on PhonePe documentation)
+    const callbackResponse = req.body;
+    const { orderId, state } = callbackResponse;
 
-    // Fetch the specific order
-    let specificOrder = await UserOrder.findOne({ userId, orderId });
-
-    // If specific order not found, return 404
-    if (!specificOrder) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Order not found for this user", null));
-    }
-
-    // Populate specific order details
-    specificOrder = await populateOrderDetails(specificOrder, userId);
-
-
-    return res
-      .status(200)
-      .json(
-        apiResponse(
-          200,
-          "Order and user orders fetched successfully",
-          specificOrder
-        )
-      );
-  } catch (error) {
-    console.error("Error fetching order and user orders:", error.message);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          error.message || "Error while fetching order and user orders",
-          null
-        )
-      );
-  }
-};
-
-// Cancel Order Controller
-exports.cancelOrder = async (req, res) => {
-  try {
-    const { userId } = req.user;
-    const { orderId,refundReason } = req.body;
-
-    // Validate userId
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json(apiResponse(400, "Invalid userId", null));
-    }
-
-    // Validate orderId
-    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid orderId is required", null));
-    }
-
-    // Find the order
-    const order = await UserOrder.findOne({ orderId, userId });
+    // Find order by PhonePe order ID
+    const order = await UserOrder.findOne({ phonepeOrderId: orderId }).session(session);
     if (!order) {
-      return res.status(404).json(apiResponse(404, "Order not found", null));
+      await session.abortTransaction();
+      session.endSession();
+      log(`Order not found: ${orderId}`, requestId);
+      return res.status(404).json(apiResponse(404, false, "Order not found"));
+    }
+
+    // Check if callback is already processed
+    if (["Paid", "Failed", "Expired"].includes(order.paymentStatus)) {
+      await session.commitTransaction();
+      session.endSession();
+      log(`Callback already processed for order: ${orderId}, status: ${order.paymentStatus}`, requestId);
+      return res.status(200).json(apiResponse(200, true, `Callback already processed as ${order.paymentStatus}`));
+    }
+
+    // Handle completed payment
+    if (state === "COMPLETED") {
+      await validateAndUpdateStock(order.orderDetails, session, requestId);
+      order.paymentStatus = "Paid";
+      order.isOrderPlaced = true;
+      order.orderStatus = "Confirmed";
+    } else if (state === "FAILED" || state === "ATTEMPT_FAILED") {
+      // Handle failed payment
+      order.paymentStatus = "Failed";
+      order.orderStatus = "Cancelled";
+      order.isOrderCancelled = true;
+    } else {
+      // No action for other states
+      await session.commitTransaction();
+      session.endSession();
+      log(`Callback state ${state} requires no action for order: ${orderId}`, requestId);
+      return res.status(200).json(apiResponse(200, true, "Callback received but no action taken"));
+    }
+
+    // Save order updates
+    await order.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // Log success and return response
+    log(`Callback processed successfully for order: ${orderId}, state: ${state}`, requestId);
+    return res.status(200).json(apiResponse(200, true, "Callback processed successfully"));
+  } catch (error) {
+    // Roll back transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    log(`Error processing callback: ${error.message}`, requestId);
+    return res.status(400).json(apiResponse(400, false, "Error processing callback"));
+  }
+};
+
+// Controller to cancel an order
+exports.cancelOrder = async (req, res) => {
+  // Start a MongoDB transaction session
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
+
+  try {
+    // Log the start of order cancellation
+    log("Cancelling order", requestId);
+    // Extract userId and request body details
+    const { userId } = req.user;
+    const { orderId, refundReason } = req.body;
+
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Invalid userId"));
+    }
+
+    // Validate orderId
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+    }
+
+    // Find order
+    const order = await UserOrder.findOne({ orderId, userId }).session(session);
+    if (!order) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Order not found"));
     }
 
     // Check if order is already cancelled
     if (order.isOrderCancelled) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Order is already cancelled", null));
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Order is already cancelled"));
     }
 
-    // Check if order can be cancelled (only before "Dispatched")
+    // Check if order is in a non-cancellable state
     const nonCancellableStatuses = ["Dispatched", "Delivered", "Returned"];
     if (nonCancellableStatuses.includes(order.orderStatus)) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`,
-            null
-          )
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`
+        )
+      );
     }
 
-    // Calculate total refund amount based on item prices
+    // Calculate total refund amount
     let totalRefundAmount = 0;
     for (const detail of order.orderDetails) {
-      const item = await Item.findById(detail.itemId);
+      const item = await Item.findById(detail.itemId).session(session);
       if (!item) {
-        return res
-          .status(404)
-          .json(
-            apiResponse(404, `Item with ID ${detail.itemId} not found`, null)
-          );
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json(
+          apiResponse(404, false, `Item with ID ${detail.itemId} not found`)
+        );
       }
 
       const itemPrice = item.discountedPrice || item.MRP;
@@ -817,96 +1059,111 @@ exports.cancelOrder = async (req, res) => {
       totalRefundAmount += itemPrice * quantity;
     }
 
-    // Update order status and cancellation flag
+    // Update order status
     order.orderStatus = "Cancelled";
     order.isOrderCancelled = true;
 
-    // Handle refund logic based on payment method
+    // Handle refunds for COD
     if (order.paymentMethod === "COD") {
-      // No refund needed for COD as payment hasn't been made
       order.refund = {
-        refundReason: refundReason,
+        refundReason,
         requestDate: new Date(),
       };
-    } else if (
-      order.paymentMethod === "Online" &&
-      order.paymentStatus === "Paid"
-    ) {
-      // Full refund for online paid orders
-      if (!order.razorpayPaymentId) {
-        return res
-          .status(400)
-          .json(apiResponse(400, "No valid Razorpay payment ID found", null));
-      }
-
-      try {
-        // Process refund with Razorpay
-        const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
-          amount: totalRefundAmount * 100, // Convert to paise
-          speed: "normal",
-          notes: {
-            reason: "Order cancelled by user (Online)",
-            orderId: order.orderId,
-          },
-        });
-
-        // Set refund object with Razorpay refund transaction ID
-        order.refund = {
-          refundReason: refundReason,
-          requestDate: new Date(),
-          refundAmount: totalRefundAmount,
-          refundRazorpayTransactionId: refund.id,
-          refundStatus: "Processing",
-        };
-      } catch (razorpayError) {
-        console.error("Razorpay refund error:", razorpayError);
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Failed to process refund: ${razorpayError.message}`,
-              null
-            )
-          );
-      }
-    } else {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Refunds are only applicable for online paid orders or COD",
-            null
-          )
+    } else if (order.paymentMethod === "Online" && order.paymentStatus === "Paid") {
+      // Validate merchant order ID
+      if (!order.phonepeMerchantOrderId) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "No valid PhonePe merchant order ID found")
         );
+      }
+
+      // Check if refund is already initiated
+      if (order.refund && order.refund.refundTransactionId) {
+        await session.commitTransaction();
+        session.endSession();
+        return res.status(400).json(apiResponse(400, false, "Refund already initiated"));
+      }
+
+      // Initiate refund
+      const merchantRefundId = randomUUID();
+      const request = RefundRequest.builder()
+        .merchantRefundId(merchantRefundId)
+        .originalMerchantOrderId(order.phonepeMerchantOrderId)
+        .amount(totalRefundAmount * 100)
+        .build();
+
+      const refund = await withRetry(
+        () => phonepeClient.initiateRefund(request),
+        3,
+        1000,
+        requestId
+      );
+
+      // Update order with refund details
+      order.refund = {
+        refundReason,
+        requestDate: new Date(),
+        refundAmount: totalRefundAmount,
+        refundTransactionId: refund.refundId,
+        merchantRefundId,
+        refundStatus: "Processing",
+      };
+    } else {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Refunds are only applicable for online paid orders or COD")
+      );
     }
 
-    await order.save();
+    // Save order updates
+    await order.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
 
     // Populate order details
     const enrichedOrder = await populateOrderDetails(order, userId);
 
-    return res
-      .status(200)
-      .json(apiResponse(200, "Order cancelled successfully", enrichedOrder));
+    // Log success and return response
+    log(`Order cancelled successfully: ${orderId}`, requestId);
+    return res.status(200).json(
+      apiResponse(200, true, "Order cancelled successfully", enrichedOrder)
+    );
   } catch (error) {
-    console.error("Error cancelling order:", error.message);
-    return res
-      .status(500)
-      .json(
-        apiResponse(500, error.message || "Error while cancelling order", null)
-      );
+    // Roll back transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    log(`Error cancelling order: ${error.message}`, requestId);
+    return res.status(500).json(
+      apiResponse(500, false, error.message || "Error while cancelling order")
+    );
   }
 };
 
-// Return and Refund Controller
+
+// Controller to process return and refund requests
 exports.returnRefund = async (req, res) => {
+  // Start a MongoDB transaction session
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
+
   try {
+    // Log the start of return and refund processing
+    log("Processing return and refund", requestId);
+    // Extract userId and request body details
     const { userId } = req.user;
     const {
       orderId,
       itemId,
+      color,
+      size,
+      skuId, // Optional, for additional precision
       returnReason,
       specificReturnReason,
       pickupLocationId,
@@ -915,31 +1172,54 @@ exports.returnRefund = async (req, res) => {
 
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json(apiResponse(400, "Invalid userId", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Invalid userId"));
     }
 
-    // Validate required fields
+    // Validate orderId
     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid orderId is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
     }
 
+    // Validate itemId
     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid itemId is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid itemId is required"));
     }
 
-    if (
-      !pickupLocationId ||
-      !mongoose.Types.ObjectId.isValid(pickupLocationId)
-    ) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid pickupLocationId is required", null));
+    // Validate color
+    if (!color || typeof color !== "string" || color.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid color is required"));
     }
 
+    // Validate size
+    if (!size || typeof size !== "string" || size.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid size is required"));
+    }
+
+    // Validate skuId if provided
+    if (skuId && (typeof skuId !== "string" || skuId.trim() === "")) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid skuId is required if provided"));
+    }
+
+    // Validate pickupLocationId
+    if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid pickupLocationId is required"));
+    }
+
+    // Validate returnReason
     if (
       !returnReason ||
       ![
@@ -953,26 +1233,27 @@ exports.returnRefund = async (req, res) => {
         "Product arrived too late",
       ].includes(returnReason)
     ) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid returnReason is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid returnReason is required"));
     }
 
+    // Validate specificReturnReason
     if (
       !specificReturnReason ||
       typeof specificReturnReason !== "string" ||
       specificReturnReason.trim() === ""
     ) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid specificReturnReason is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid specificReturnReason is required"));
     }
 
     // Validate bankDetails
     if (!bankDetails) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "bankDetails are required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "bankDetails are required"));
     }
 
     const { accountNumber, ifscCode, bankName, accountHolderName } = bankDetails;
@@ -990,102 +1271,146 @@ exports.returnRefund = async (req, res) => {
       typeof accountHolderName !== "string" ||
       accountHolderName.trim() === ""
     ) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(400, "Complete and valid bankDetails are required", null)
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Complete and valid bankDetails are required")
+      );
     }
 
-    // Find the order
-    const order = await UserOrder.findOne({ orderId, userId });
+    // Find order
+    const order = await UserOrder.findOne({ orderId, userId }).session(session);
     if (!order) {
-      return res.status(404).json(apiResponse(404, "Order not found", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Order not found"));
     }
 
-    // Check if order is eligible for return
+    // Check if order is delivered
     if (order.orderStatus !== "Delivered") {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Order must be in Delivered status to initiate a return",
-            null
-          )
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Order must be in Delivered status to initiate a return")
+      );
     }
 
-    // Find the specific order detail
+    // Find order detail for the item by itemId, color, size, and optionally skuId
     const orderDetail = order.orderDetails.find(
-      (detail) => detail.itemId.toString() === itemId.toString()
+      (detail) =>
+        detail.itemId.toString() === itemId.toString() &&
+        detail.color.toLowerCase() === color.toLowerCase() &&
+        detail.size.toLowerCase() === size.toLowerCase() &&
+        (!skuId || detail.skuId === skuId)
     );
     if (!orderDetail) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Item not found in order details", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(
+        apiResponse(
+          404,
+          false,
+          `Item with ID ${itemId}, color ${color}, size ${size}${skuId ? `, skuId ${skuId}` : ""} not found in order details`
+        )
+      );
     }
 
-    // Check if a return or exchange request already exists
+    // Check if return is already in progress
     if (
       orderDetail.isReturn ||
       (orderDetail.returnInfo &&
         orderDetail.returnInfo.refundStatus &&
         orderDetail.returnInfo.refundStatus !== "Completed")
     ) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "A return request is already in progress for this item",
-            null
-          )
-        );
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "A return request is already in progress for this item")
+      );
     }
+
+    // Check if exchange is already in progress
     if (
       orderDetail.isExchange ||
       (orderDetail.exchangeInfo &&
         orderDetail.exchangeInfo.exchangeStatus &&
         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
     ) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "An exchange request is already in progress for this item",
-            null
-          )
-        );
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "An exchange request is already in progress for this item")
+      );
     }
 
-    // Validate pickupLocationId
+    // Validate pickup address
     const addressExists = await UserAddress.findOne({
       userId,
       "addressDetail._id": pickupLocationId,
-    });
+    }).session(session);
     if (!addressExists) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Pickup address not found", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Pickup address not found"));
+    }
+
+    // Fetch item details
+    const item = await Item.findById(orderDetail.itemId).session(session);
+    if (!item) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(
+        apiResponse(404, false, `Item with ID ${orderDetail.itemId} not found`)
+      );
     }
 
     // Calculate refund amount
-    const item = await Item.findById(orderDetail.itemId);
-    if (!item) {
-      return res
-        .status(404)
-        .json(
-          apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
+    let refundAmount;
+    const isSingleItemOrder = order.orderDetails.length === 1;
+
+    if (isSingleItemOrder) {
+      // Single-item order: Use totalAmount
+      if (order.paymentMethod === "COD") {
+        refundAmount = Math.max(0, order.totalAmount - 50); // Deduct ₹50 for COD
+      } else if (order.paymentMethod === "Online") {
+        refundAmount = order.totalAmount; // Full totalAmount
+      }
+    } else {
+      // Multi-item order: Use discountedPrice * quantity for the specific item
+      const itemPrice = item.discountedPrice || item.MRP;
+      if (typeof itemPrice !== "number" || itemPrice <= 0) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, `Invalid price for itemId ${orderDetail.itemId}`)
         );
+      }
+      const quantity = orderDetail.quantity;
+      if (typeof quantity !== "number" || quantity < 1) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, `Invalid quantity for itemId ${orderDetail.itemId}`)
+        );
+      }
+      const itemTotal = itemPrice * quantity;
+      if (order.paymentMethod === "COD") {
+        refundAmount = Math.max(0, itemTotal - 50); // Deduct ₹50 for COD
+      } else if (order.paymentMethod === "Online") {
+        refundAmount = itemTotal; // Full item total
+      }
     }
 
-    const itemPrice = item.discountedPrice || item.MRP;
-    const quantity = orderDetail.quantity || 1;
-    const refundAmountBase = itemPrice * quantity;
+    // Validate refundAmount
+    if (typeof refundAmount !== "number" || refundAmount < 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Calculated refund amount is invalid")
+      );
+    }
 
-    // Initialize return info
+    // Prepare return info
     const returnInfo = {
       returnReason,
       specificReturnReason,
@@ -1093,139 +1418,458 @@ exports.returnRefund = async (req, res) => {
       pickupLocationId,
       bankDetails,
       refundStatus: "Initiated",
-      refundAmount: 0,
+      refundAmount,
     };
 
-    // Handle refund logic
+    // Handle COD refunds
     if (order.paymentMethod === "COD") {
-      const refundAmount = Math.max(0, refundAmountBase - 50);
-      returnInfo.refundStatus = "Initiated";
-      returnInfo.returnAndRefundTransactionId = `REF-COD-${Date.now()}`; // This could be calculated by the Admin Side
-      returnInfo.refundAmount = refundAmount;
-    } else if (
-      order.paymentMethod === "Online" &&
-      order.paymentStatus === "Paid"
-    ) {
-      if (!order.razorpayPaymentId) {
-        return res
-          .status(400)
-          .json(apiResponse(400, "No valid Razorpay payment ID found", null));
-      }
-
-      try {
-        const refund = await razorpay.payments.refund(order.razorpayPaymentId, {
-          amount: refundAmountBase * 100,
-          speed: "normal",
-          notes: {
-            reason: returnReason,
-            specificReason: specificReturnReason,
-            orderId: order.orderId,
-            itemId,
-          },
-        });
-
-        returnInfo.returnAndRefundTransactionId = refund.id;
-        returnInfo.refundStatus = "Processing";
-        returnInfo.refundAmount = refundAmountBase;
-      } catch (razorpayError) {
-        console.error("Razorpay refund error:", razorpayError);
-        return res
-          .status(400)
-          .json(
-            apiResponse(
-              400,
-              `Failed to process refund: ${razorpayError.message}`,
-              null
-            )
-          );
-      }
-    } else {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Refunds are only applicable for online paid orders or COD",
-            null
-          )
+      returnInfo.returnAndRefundTransactionId = `REF-COD-${Date.now()}`;
+    } else if (order.paymentMethod === "Online" && order.paymentStatus === "Paid") {
+      // Validate merchant order ID
+      if (!order.phonepeMerchantOrderId) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json(
+          apiResponse(400, false, "No valid PhonePe merchant order ID found")
         );
+      }
+
+      // Check if refund is already initiated
+      if (orderDetail.returnInfo && orderDetail.returnInfo.returnAndRefundTransactionId) {
+        await session.commitTransaction();
+        session.endSession();
+        return res.status(400).json(apiResponse(400, false, "Refund already initiated"));
+      }
+
+      // Initiate refund
+      const merchantRefundId = randomUUID();
+      const request = RefundRequest.builder()
+        .merchantRefundId(merchantRefundId)
+        .originalMerchantOrderId(order.phonepeMerchantOrderId)
+        .amount(Math.round(refundAmount * 100)) // Convert to paise
+        .build();
+
+      const refund = await withRetry(
+        () => phonepeClient.initiateRefund(request),
+        3,
+        1000,
+        requestId
+      );
+
+      // Update return info
+      returnInfo.returnAndRefundTransactionId = refund.refundId;
+      returnInfo.merchantRefundId = merchantRefundId;
+      returnInfo.refundStatus = "Processing";
+    } else {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Refunds are only applicable for online paid orders or COD")
+      );
     }
 
     // Update order detail
     orderDetail.isReturn = true;
     orderDetail.returnInfo = returnInfo;
-
-    // Update order status
     order.orderStatus = "Returned";
 
-    await order.save();
+    // Save order updates
+    await order.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
 
     // Populate order details
     const enrichedOrder = await populateOrderDetails(order, userId);
 
-    return res
-      .status(200)
-      .json(
-        apiResponse(200, "Return and refund request initiated successfully", {
-          order: enrichedOrder,
-        })
-      );
+    // Log success and return response
+    log(`Return and refund initiated successfully: ${orderId}`, requestId);
+    return res.status(200).json(
+      apiResponse(200, true, "Return and refund request initiated successfully", {
+        order: enrichedOrder,
+      })
+    );
   } catch (error) {
-    console.error("Error processing return and refund:", error.message);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          error.message || "Error while processing return and refund",
-          null
-        )
-      );
+    // Roll back transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    log(`Error processing return and refund: ${error.message}`, requestId);
+    return res.status(500).json(
+      apiResponse(500, false, error.message || "Error while processing return and refund")
+    );
   }
 };
 
-// Return and Exchange Controller
+
+// // Controller to process return and exchange requests
+// exports.returnAndExchange = async (req, res) => {
+//   // Start a MongoDB transaction session
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+//   // Generate a unique request ID for logging
+//   const requestId = randomUUID();
+
+//   try {
+//     // Log the start of exchange processing
+//     log("Processing return and exchange", requestId);
+//     // Extract userId and request body details
+//     const { userId } = req.user;
+//     const {
+//       orderId,
+//       itemId,
+//       exchangeReason,
+//       exchangeSpecificReason,
+//       pickupLocationId,
+//       color,
+//       size,
+//       skuId,
+//     } = req.body;
+
+//     // Validate userId
+//     if (!mongoose.Types.ObjectId.isValid(userId)) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Invalid userId"));
+//     }
+
+//     // Validate orderId
+//     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+//     }
+
+//     // Validate itemId
+//     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid itemId is required"));
+//     }
+
+//     // Validate pickupLocationId
+//     if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid pickupLocationId is required"));
+//     }
+
+//     // Validate exchangeReason
+//     if (
+//       !exchangeReason ||
+//       ![
+//         "Size too small",
+//         "Size too big",
+//         "Don't like the fit",
+//         "Don't like the quality",
+//         "Not same as the catalogue",
+//         "Product is damaged",
+//         "Wrong product is received",
+//         "Product arrived too late",
+//       ].includes(exchangeReason)
+//     ) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid exchangeReason is required"));
+//     }
+
+//     // Validate exchangeSpecificReason
+//     if (
+//       !exchangeSpecificReason ||
+//       typeof exchangeSpecificReason !== "string" ||
+//       exchangeSpecificReason.trim() === ""
+//     ) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, "Valid exchangeSpecificReason is required")
+//       );
+//     }
+
+//     // Validate color
+//     if (!color || typeof color !== "string" || color.trim() === "") {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid color is required"));
+//     }
+
+//     // Validate size
+//     if (!size || typeof size !== "string" || size.trim() === "") {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid size is required"));
+//     }
+
+//     // Validate skuId
+//     if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, "Valid skuId is required"));
+//     }
+
+//     // Find order
+//     const order = await UserOrder.findOne({ orderId, userId }).session(session);
+//     if (!order) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(404).json(apiResponse(404, false, "Order not found"));
+//     }
+
+//     // Check if order is delivered
+//     if (order.orderStatus !== "Delivered") {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, "Order must be in Delivered status to initiate an exchange")
+//       );
+//     }
+
+//     // Find order detail for the item
+//     const orderDetail = order.orderDetails.find(
+//       (detail) => detail.itemId.toString() === itemId.toString()
+//     );
+//     if (!orderDetail) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(404).json(apiResponse(404, false, "Item not found in order details"));
+//     }
+
+//     // Check if return is already in progress
+//     if (
+//       orderDetail.isReturn ||
+//       (orderDetail.returnInfo &&
+//         orderDetail.returnInfo.refundStatus &&
+//         orderDetail.returnInfo.refundStatus !== "Completed")
+//     ) {
+//       await session.commitTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, "A return request is already in progress for this item")
+//       );
+//     }
+//     // Check if exchange is already in progress
+//     if (
+//       orderDetail.isExchange ||
+//       (orderDetail.exchangeInfo &&
+//         orderDetail.exchangeInfo.exchangeStatus &&
+//         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
+//     ) {
+//       await session.commitTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, "An exchange request is already in progress for this item")
+//       );
+//     }
+
+//     // Validate pickup address
+//     const addressExists = await UserAddress.findOne({
+//       userId,
+//       "addressDetail._id": pickupLocationId,
+//     }).session(session);
+//     if (!addressExists) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(404).json(apiResponse(404, false, "Pickup address not found"));
+//     }
+
+//     // Fetch item details
+//     const item = await Item.findById(orderDetail.itemId).session(session);
+//     if (!item) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(404).json(
+//         apiResponse(404, false, `Item with ID ${orderDetail.itemId} not found`)
+//       );
+//     }
+
+//     // Fetch item detail for stock check
+//     const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId }).session(session);
+//     if (!itemDetail) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(404).json(apiResponse(404, false, "Item details not found"));
+//     }
+
+//     // Validate color availability
+//     const colorEntry = itemDetail.imagesByColor.find(
+//       (entry) => entry.color.toLowerCase() === color.toLowerCase()
+//     );
+//     if (!colorEntry) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, `Color ${color} not available for this item`)
+//       );
+//     }
+
+//     // Validate size and skuId
+//     const sizeEntry = colorEntry.sizes.find(
+//       (s) => s.size === size && s.skuId === skuId
+//     );
+//     if (!sizeEntry) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, `Size ${size} or skuId ${skuId} not available for color ${color}`)
+//       );
+//     }
+
+//     // Check stock availability
+//     if (sizeEntry.stock <= 0) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(apiResponse(400, false, `Requested size ${size} is out of stock`));
+//     }
+
+//     // Validate price consistency
+//     const originalPrice = item.discountedPrice || item.MRP;
+//     const newPrice = originalPrice;
+//     if (originalPrice !== newPrice) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json(
+//         apiResponse(400, false, "Exchange is only allowed for products with the same price")
+//       );
+//     }
+
+//     // Prepare exchange info
+//     const exchangeInfo = {
+//       exchangeReason,
+//       exchangeSpecificReason,
+//       color,
+//       size,
+//       skuId,
+//       isSizeAvailability: true,
+//       requestDate: new Date(),
+//       pickupLocationId,
+//       exchangeStatus: "Initiated",
+//     };
+
+//     // Update order detail
+//     orderDetail.isExchange = true;
+//     orderDetail.exchangeInfo = exchangeInfo;
+//     order.orderStatus = "Returned";
+
+//     // Save order updates
+//     await order.save({ session });
+
+//     // Commit transaction
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     // Populate order details
+//     const enrichedOrder = await populateOrderDetails(order, userId);
+
+//     // Log success and return response
+//     log(`Exchange request initiated successfully: ${orderId}`, requestId);
+//     return res.status(200).json(
+//       apiResponse(200, true, "Exchange request initiated successfully", {
+//         order: enrichedOrder,
+//       })
+//     );
+//   } catch (error) {
+//     // Roll back transaction on error
+//     await session.abortTransaction();
+//     session.endSession();
+//     log(`Error processing return and exchange: ${error.message}`, requestId);
+//     return res.status(500).json(
+//       apiResponse(500, false, error.message || "Error while processing return and exchange")
+//     );
+//   }
+// };
+
+
+
+// Controller to process return and exchange requests
 exports.returnAndExchange = async (req, res) => {
+  // Start a MongoDB transaction session
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
+
   try {
+    // Log the start of exchange processing
+    log("Processing return and exchange", requestId);
+    // Extract userId and request body details
     const { userId } = req.user;
     const {
       orderId,
       itemId,
+      color,
+      size,
+      skuId, // For identifying the item to return
+      desiredColor,
+      desiredSize, // For the replacement item
       exchangeReason,
       exchangeSpecificReason,
       pickupLocationId,
-      color,
-      size,
-      skuId,
     } = req.body;
 
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json(apiResponse(400, "Invalid userId", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Invalid userId"));
     }
 
-    // Validate required fields
+    // Validate orderId
     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid orderId is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
     }
 
+    // Validate itemId
     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid itemId is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid itemId is required"));
     }
 
-    if (
-      !pickupLocationId ||
-      !mongoose.Types.ObjectId.isValid(pickupLocationId)
-    ) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid pickupLocationId is required", null));
+    // Validate color (for item to return)
+    if (!color || typeof color !== "string" || color.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid color is required"));
     }
 
+    // Validate size (for item to return)
+    if (!size || typeof size !== "string" || size.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid size is required"));
+    }
+
+    // Validate skuId (for item to return)
+    if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid skuId is required"));
+    }
+
+    // Validate desiredColor (for replacement item)
+    if (!desiredColor || typeof desiredColor !== "string" || desiredColor.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid desiredColor is required"));
+    }
+
+    // Validate desiredSize (for replacement item)
+    if (!desiredSize || typeof desiredSize !== "string" || desiredSize.trim() === "") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid desiredSize is required"));
+    }
+
+    // Validate pickupLocationId
+    if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid pickupLocationId is required"));
+    }
+
+    // Validate exchangeReason
     if (
       !exchangeReason ||
       ![
@@ -1239,188 +1883,179 @@ exports.returnAndExchange = async (req, res) => {
         "Product arrived too late",
       ].includes(exchangeReason)
     ) {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid exchangeReason is required", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(apiResponse(400, false, "Valid exchangeReason is required"));
     }
 
+    // Validate exchangeSpecificReason
     if (
       !exchangeSpecificReason ||
       typeof exchangeSpecificReason !== "string" ||
       exchangeSpecificReason.trim() === ""
     ) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(400, "Valid exchangeSpecificReason is required", null)
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Valid exchangeSpecificReason is required")
+      );
     }
 
-    if (!color || typeof color !== "string" || color.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid color is required", null));
-    }
-
-    if (!size || typeof size !== "string" || size.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid size is required", null));
-    }
-
-    if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
-      return res
-        .status(400)
-        .json(apiResponse(400, "Valid skuId is required", null));
-    }
-
-    // Find the order
-    const order = await UserOrder.findOne({ orderId, userId });
+    // Find order
+    const order = await UserOrder.findOne({ orderId, userId }).session(session);
     if (!order) {
-      return res.status(404).json(apiResponse(404, "Order not found", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Order not found"));
     }
 
-    // Check if order is eligible for exchange
+    // Check if order is delivered
     if (order.orderStatus !== "Delivered") {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Order must be in Delivered status to initiate an exchange",
-            null
-          )
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Order must be in Delivered status to initiate an exchange")
+      );
     }
 
-    // Find the specific order detail
+    // Find order detail for the item by itemId, color, size, and skuId
     const orderDetail = order.orderDetails.find(
-      (detail) => detail.itemId.toString() === itemId.toString()
+      (detail) =>
+        detail.itemId.toString() === itemId.toString() &&
+        detail.color.toLowerCase() === color.toLowerCase() &&
+        detail.size.toLowerCase() === size.toLowerCase() &&
+        detail.skuId === skuId
     );
     if (!orderDetail) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Item not found in order details", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(
+        apiResponse(
+          404,
+          false,
+          `Item with ID ${itemId}, color ${color}, size ${size}, skuId ${skuId} not found in order details`
+        )
+      );
     }
 
-    // Check if a return or exchange request already exists
+    // Check if return is already in progress
     if (
       orderDetail.isReturn ||
       (orderDetail.returnInfo &&
         orderDetail.returnInfo.refundStatus &&
         orderDetail.returnInfo.refundStatus !== "Completed")
     ) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "A return request is already in progress for this item",
-            null
-          )
-        );
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "A return request is already in progress for this item")
+      );
     }
+
+    // Check if exchange is already in progress
     if (
       orderDetail.isExchange ||
       (orderDetail.exchangeInfo &&
         orderDetail.exchangeInfo.exchangeStatus &&
         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
     ) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "An exchange request is already in progress for this item",
-            null
-          )
-        );
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "An exchange request is already in progress for this item")
+      );
     }
 
-    // Validate pickupLocationId
+    // Validate pickup address
     const addressExists = await UserAddress.findOne({
       userId,
       "addressDetail._id": pickupLocationId,
-    });
+    }).session(session);
     if (!addressExists) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Pickup address not found", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Pickup address not found"));
     }
 
-    // Validate the requested product variant
-    const item = await Item.findById(orderDetail.itemId);
+    // Fetch item details
+    const item = await Item.findById(orderDetail.itemId).session(session);
     if (!item) {
-      return res
-        .status(404)
-        .json(
-          apiResponse(404, `Item with ID ${orderDetail.itemId} not found`, null)
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(
+        apiResponse(404, false, `Item with ID ${orderDetail.itemId} not found`)
+      );
     }
 
-    const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId });
+    // Fetch item detail for stock check
+    const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId }).session(session);
     if (!itemDetail) {
-      return res
-        .status(404)
-        .json(apiResponse(404, "Item details not found", null));
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json(apiResponse(404, false, "Item details not found"));
     }
 
-    // Validate color, size, and skuId
+    // Validate desiredColor availability for replacement item
     const colorEntry = itemDetail.imagesByColor.find(
-      (entry) => entry.color.toLowerCase() === color.toLowerCase()
+      (entry) => entry.color.toLowerCase() === desiredColor.toLowerCase()
     );
     if (!colorEntry) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(400, `Color ${color} not available for this item`, null)
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, `Color ${desiredColor} is not available for this item`)
+      );
     }
 
-    const sizeEntry = colorEntry.sizes.find(
-      (s) => s.size === size && s.skuId === skuId
-    );
+    // Validate desiredSize availability for replacement item
+    const sizeEntry = colorEntry.sizes.find((s) => s.size.toLowerCase() === desiredSize.toLowerCase());
     if (!sizeEntry) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            `Size ${size} or skuId ${skuId} not available for color ${color}`,
-            null
-          )
-        );
+      // Check if other sizes are available for desiredColor
+      const availableSizes = colorEntry.sizes.map((s) => s.size).join(", ");
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Size ${desiredSize} is not available, but different sizes are available for color ${desiredColor}: ${availableSizes}`
+        )
+      );
     }
 
-    // Check stock availability
-    if (sizeEntry.stock <= 0) {
-      return res
-        .status(400)
-        .json(apiResponse(400, `Requested size ${size} is out of stock`, null));
+    // Check stock availability for replacement item
+    if (sizeEntry.stock < orderDetail.quantity) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Requested size ${desiredSize} has insufficient stock for quantity ${orderDetail.quantity}`
+        )
+      );
     }
 
-    // Validate price
+    // Validate price consistency
     const originalPrice = item.discountedPrice || item.MRP;
-    const newPrice = originalPrice;
+    const newPrice = originalPrice; // Same itemId ensures same price
     if (originalPrice !== newPrice) {
-      return res
-        .status(400)
-        .json(
-          apiResponse(
-            400,
-            "Exchange is only allowed for products with the same price",
-            null
-          )
-        );
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json(
+        apiResponse(400, false, "Exchange is only allowed for products with the same price")
+      );
     }
 
-    // Initialize exchange info
+    // Prepare exchange info
     const exchangeInfo = {
       exchangeReason,
       exchangeSpecificReason,
       color,
       size,
       skuId,
+      desiredColor,
+      desiredSize,
       isSizeAvailability: true,
       requestDate: new Date(),
       pickupLocationId,
@@ -1430,32 +2065,126 @@ exports.returnAndExchange = async (req, res) => {
     // Update order detail
     orderDetail.isExchange = true;
     orderDetail.exchangeInfo = exchangeInfo;
-
-    // Update order status
     order.orderStatus = "Returned";
 
-    await order.save();
+    // Save order updates
+    await order.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
 
     // Populate order details
     const enrichedOrder = await populateOrderDetails(order, userId);
 
-    return res
-      .status(200)
-      .json(
-        apiResponse(200, "Exchange request initiated successfully", {
-          order: enrichedOrder,
-        })
-      );
+    // Log success and return response
+    log(`Exchange request initiated successfully: ${orderId}`, requestId);
+    return res.status(200).json(
+      apiResponse(200, true, "Exchange request initiated successfully", {
+        order: enrichedOrder,
+      })
+    );
   } catch (error) {
-    console.error("Error processing return and exchange:", error.message);
-    return res
-      .status(500)
-      .json(
-        apiResponse(
-          500,
-          error.message || "Error while processing return and exchange",
-          null
-        )
-      );
+    // Roll back transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    log(`Error processing return and exchange: ${error.message}`, requestId);
+    return res.status(500).json(
+      apiResponse(500, false, error.message || "Error while processing return and exchange")
+    );
+  }
+};
+
+
+
+
+
+
+
+// Controller to fetch all orders for a user
+exports.fetchAllUserOrders = async (req, res) => {
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
+
+  try {
+    // Log the start of fetching orders
+    log("Fetching user orders", requestId);
+    // Extract userId
+    const { userId } = req.user;
+
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid userId"));
+    }
+
+    // Fetch all orders sorted by creation date
+    let orders = await UserOrder.find({ userId }).sort({ createdAt: -1 });
+
+    // Handle no orders found
+    if (!orders || orders.length === 0) {
+      return res.status(200).json(apiResponse(200, true, "No user orders found", []));
+    }
+
+    // Populate order details
+    const enrichedOrders = await populateOrderDetails(orders, userId);
+
+    // Log success and return response
+    log(`User orders fetched successfully for user: ${userId}`, requestId);
+    return res.status(200).json(
+      apiResponse(200, true, "User orders fetched successfully", enrichedOrders)
+    );
+  } catch (error) {
+    // Log error and return response
+    log(`Error fetching user orders: ${error.message}`, requestId);
+    return res.status(500).json(
+      apiResponse(500, false, error.message || "Server error while fetching user orders")
+    );
+  }
+};
+
+// Controller to fetch a specific order by orderId
+exports.fetchOrderByOrderId = async (req, res) => {
+  // Generate a unique request ID for logging
+  const requestId = randomUUID();
+
+  try {
+    // Log the start of fetching order
+    log("Fetching specific order", requestId);
+    // Extract userId and orderId
+    const { userId } = req.user;
+    const { orderId } = req.params;
+
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid userId"));
+    }
+
+    // Validate orderId
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
+      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+    }
+
+    // Find order
+    let specificOrder = await UserOrder.findOne({ userId, orderId });
+
+    // Handle order not found
+    if (!specificOrder) {
+      return res.status(404).json(apiResponse(404, false, "Order not found for this user"));
+    }
+
+    // Populate order details
+    specificOrder = await populateOrderDetails(specificOrder, userId);
+
+    // Log success and return response
+    log(`Order fetched successfully: ${orderId}`, requestId);
+    return res.status(200).json(
+      apiResponse(200, true, "Order fetched successfully", specificOrder)
+    );
+  } catch (error) {
+    // Log error and return response
+    log(`Error fetching order: ${error.message}`, requestId);
+    return res.status(500).json(
+      apiResponse(500, false, error.message || "Error while fetching order")
+    );
   }
 };

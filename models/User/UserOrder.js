@@ -5,6 +5,7 @@ const orderSchema = new mongoose.Schema(
     orderId: {
       type: String,
       required: true,
+      unique: true,
     },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -71,7 +72,7 @@ const orderSchema = new mongoose.Schema(
             accountHolderName: { type: String },
             accountNumber: { type: String },
             ifscCode: { type: String },
-            bankName: { type: String }, 
+            bankName: { type: String },
           },
           refundAmount: {
             type: Number,
@@ -112,7 +113,7 @@ const orderSchema = new mongoose.Schema(
           },
           exchangeStatus: {
             type: String,
-            enum: ["Initiated", "Processing", "Completed"],
+            enum: ["Initiated", "Processing", " fettCompleted"],
             default: null,
           },
         },
@@ -140,15 +141,16 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: {
       type: String,
       enum: ["Online", "COD"],
+      required: true,
     },
     paymentStatus: {
       type: String,
       enum: ["Pending", "Paid", "Failed", "Refunded"],
       default: "Pending",
     },
-    razorpayOrderId: { type: String, default: null },
-    razorpayPaymentId: { type: String, default: null },
-    razorpaySignature: { type: String, default: null },
+    phonepeOrderId: { type: String, default: null },
+    phonepeMerchantOrderId: { type: String, default: null },
+    checkoutPageUrl: { type: String, default: null },
 
     orderStatus: {
       type: String,
@@ -168,6 +170,7 @@ const orderSchema = new mongoose.Schema(
     totalAmount: {
       type: Number,
       required: true,
+      min: 0,
     },
 
     refund: {
@@ -178,7 +181,7 @@ const orderSchema = new mongoose.Schema(
         min: 0,
         default: null,
       },
-      refundRazorpayTransactionId: { type: String, default: null },
+      refundTransactionId: { type: String, default: null },
       refundStatus: {
         type: String,
         enum: ["Initiated", "Processing", "Completed"],
@@ -190,5 +193,8 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Add index for efficient lookup
+orderSchema.index({ phonepeMerchantOrderId: 1 }, { sparse: true });
 
 module.exports = mongoose.model("UserOrder", orderSchema);

@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-const { MAX } = require("uuid");
 
 const TBYBSchema = new mongoose.Schema({
   userId: {
@@ -29,7 +28,6 @@ const TBYBSchema = new mongoose.Schema({
   trialOnNumber:{
     type:Number,
     default:0,
-    MAX:10
   }
 });
 
