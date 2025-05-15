@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 const PartnerCart = require("../../models/Partner/PartnerCart");
 const Partner = require("../../models/Partner/Partner");
@@ -6,158 +5,116 @@ const Item = require("../../models/Items/Item");
 const ItemDetail = require("../../models/Items/ItemDetail");
 const { apiResponse } = require("../../utils/apiResponse");
 
-
-
-
+// Controller to add or update items in PartnerCart
 exports.addToCart = async (req, res) => {
   try {
     const { partnerId } = req.user;
-    const { itemId, orderDetails } = req.body;
+    const { itemId, orderDetails, totalQuantity, totalPrice } = req.body;
 
-    // Validate itemId
-    if (!itemId) {
-      return res.status(400).json(apiResponse(400, false, "itemId is required"));
+    // Validate input
+    if (!partnerId || !mongoose.Types.ObjectId.isValid(partnerId)) {
+      throw new Error("Invalid or missing partnerId");
     }
-    if (!mongoose.Types.ObjectId.isValid(itemId)) {
-      return res.status(400).json(apiResponse(400, false, "Invalid itemId"));
+    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+      throw new Error("Invalid or missing itemId");
     }
-
-    // Validate orderDetails
-    if (!Array.isArray(orderDetails) || orderDetails.length === 0) {
-      return res.status(400).json(apiResponse(400, false, "orderDetails must be a non-empty array"));
+    if (!orderDetails || !Array.isArray(orderDetails) || orderDetails.length === 0) {
+      throw new Error("orderDetails must be a non-empty array");
     }
-    for (let i = 0; i < orderDetails.length; i++) {
-      const detail = orderDetails[i];
-      if (!detail.color || typeof detail.color !== 'string') {
-        return res.status(400).json(apiResponse(400, false, `orderDetails[${i}].color is required and must be a string`));
-      }
-      if (!Array.isArray(detail.sizeAndQuantity) || detail.sizeAndQuantity.length === 0) {
-        return res.status(400).json(apiResponse(400, false, `orderDetails[${i}].sizeAndQuantity must be a non-empty array`));
-      }
-      for (let j = 0; j < detail.sizeAndQuantity.length; j++) {
-        const v = detail.sizeAndQuantity[j];
-        if (!v.size || typeof v.size !== 'string') {
-          return res.status(400).json(apiResponse(400, false, `orderDetails[${i}].sizeAndQuantity[${j}].size is required and must be a string`));
-        }
-        if (!Number.isInteger(v.quantity) || v.quantity < 1) {
-          return res.status(400).json(apiResponse(400, false, `orderDetails[${i}].sizeAndQuantity[${j}].quantity must be a positive integer`));
-        }
-        if (!v.skuId || typeof v.skuId !== 'string') {
-          return res.status(400).json(apiResponse(400, false, `orderDetails[${i}].sizeAndQuantity[${j}].skuId is required and must be a string`));
-        }
-      }
+    if (typeof totalQuantity !== "number" || totalQuantity < 1) {
+      throw new Error("totalQuantity must be a number greater than 0");
+    }
+    if (typeof totalPrice !== "number" || totalPrice < 1) {
+      throw new Error("totalPrice must be a number greater than 0");
     }
 
-    // Validate partner
-    if (!await Partner.exists({ _id: partnerId })) {
-      return res.status(404).json(apiResponse(404, false, "Partner not found"));
-    }
-
-    // Validate item
-    const item = await Item.findById(itemId);
-    if (!item) {
-      return res.status(404).json(apiResponse(404, false, "Item not found"));
-    }
-
-    // Validate item details
-    const detailDoc = await ItemDetail.findOne({ itemId });
-    if (!detailDoc) {
-      return res.status(404).json(apiResponse(404, false, "ItemDetail not found for this Item"));
-    }
-
-    // Validate colors and variants
+    // Validate orderDetails structure and calculate totalQuantity
+    let calculatedQuantity = 0;
     for (const detail of orderDetails) {
-      const colorEntry = detailDoc.imagesByColor.find(e => e.color.toLowerCase() === detail.color.toLowerCase());
-      if (!colorEntry) {
-        return res.status(400).json(apiResponse(400, false, `Color '${detail.color}' not available`));
+      if (!detail.color || typeof detail.color !== "string") {
+        throw new Error("Each orderDetails entry must have a valid color");
       }
-      for (const v of detail.sizeAndQuantity) {
-        const variant = colorEntry.sizes.find(s => s.size === v.size && s.skuId === v.skuId);
-        if (!variant) {
-          return res.status(400).json(apiResponse(400, false, `Variant size '${v.size}' with skuId '${v.skuId}' not available for color '${detail.color}'`));
+      if (
+        !detail.sizeAndQuantity ||
+        !Array.isArray(detail.sizeAndQuantity) ||
+        detail.sizeAndQuantity.length === 0
+      ) {
+        throw new Error("sizeAndQuantity must be a non-empty array");
+      }
+      for (const sizeQty of detail.sizeAndQuantity) {
+        if (
+          !sizeQty.size ||
+          typeof sizeQty.size !== "string" ||
+          !sizeQty.quantity ||
+          sizeQty.quantity < 1 ||
+          !sizeQty.skuId ||
+          typeof sizeQty.skuId !== "string"
+        ) {
+          throw new Error(
+            "Each sizeAndQuantity entry must have valid size, quantity, and skuId"
+          );
         }
+        calculatedQuantity += sizeQty.quantity;
       }
     }
 
-    const unitPrice = item.discountedPrice || 0;
+    // Compare calculated totalQuantity with provided totalQuantity
+    if (calculatedQuantity !== totalQuantity) {
+      return res.status(400).json(
+        apiResponse(
+          400,
+          false,
+          `Total quantity mismatch: calculated ${calculatedQuantity}, received ${totalQuantity} for itemId ${itemId}`
+        )
+      );
+    }
 
+    // Verify Item exists
+    const itemExists = await Item.findById(itemId);
+    if (!itemExists) {
+      throw new Error(`Item not found for itemId: ${itemId}`);
+    }
+
+    // Find or create cart
     let cart = await PartnerCart.findOne({ partnerId });
     if (!cart) {
-      // Create new cart
-      const totalQty = orderDetails.reduce((sum, d) => sum + d.sizeAndQuantity.reduce((s, v) => s + v.quantity, 0), 0);
-      const totalPrice = totalQty * unitPrice;
+      cart = new PartnerCart({ partnerId, items: [] });
+    }
 
-      cart = new PartnerCart({
-        partnerId,
-        items: [{
-          itemId,
-          orderDetails,
-          totalQuantity: totalQty,
-          totalPrice: totalPrice,
-          addedAt: Date.now()
-        }]
-      });
+    // Check if item already exists in cart
+    const existingItemIndex = cart.items.findIndex(
+      (item) => item.itemId.toString() === itemId.toString()
+    );
+
+    if (existingItemIndex !== -1) {
+      // Update existing item
+      cart.items[existingItemIndex] = {
+        itemId,
+        orderDetails,
+        totalQuantity,
+        totalPrice,
+        addedAt: new Date(),
+      };
     } else {
-      // Update existing cart
-      let itemEntry = cart.items.find(i => i.itemId.toString() === itemId);
-      if (!itemEntry) {
-        // New item in cart
-        const totalQty = orderDetails.reduce((sum, d) => sum + d.sizeAndQuantity.reduce((s, v) => s + v.quantity, 0), 0);
-        const totalPrice = totalQty * unitPrice;
-        cart.items.push({
-          itemId,
-          orderDetails,
-          totalQuantity: totalQty,
-          totalPrice: totalPrice,
-          addedAt: Date.now()
-        });
-      } else {
-        // Update existing item
-        for (const newDetail of orderDetails) {
-          let existingDetail = itemEntry.orderDetails.find(d => 
-            d.color.toLowerCase() === newDetail.color.toLowerCase()
-          );
-
-          if (existingDetail) {
-            // Same color exists, check and update sizeAndQuantity
-            for (const newVariant of newDetail.sizeAndQuantity) {
-              let existingVariant = existingDetail.sizeAndQuantity.find(v => 
-                v.size.toLowerCase() === newVariant.size.toLowerCase() && 
-                v.skuId === newVariant.skuId
-              );
-
-              if (existingVariant) {
-                // Size and skuId exist, increase quantity
-                existingVariant.quantity += newVariant.quantity;
-              } else {
-                // New size/sku, add to sizeAndQuantity
-                existingDetail.sizeAndQuantity.push({
-                  size: newVariant.size,
-                  quantity: newVariant.quantity,
-                  skuId: newVariant.skuId
-                });
-              }
-            }
-          } else {
-            // New color, add entire detail
-            itemEntry.orderDetails.push(newDetail);
-          }
-        }
-
-        // Recalculate totals
-        itemEntry.totalQuantity = itemEntry.orderDetails.reduce((sum, d) => 
-          sum + d.sizeAndQuantity.reduce((s, v) => s + v.quantity, 0), 0
-        );
-        itemEntry.totalPrice = itemEntry.totalQuantity * unitPrice;
-      }
+      // Add new item
+      cart.items.push({
+        itemId,
+        orderDetails,
+        totalQuantity,
+        totalPrice,
+        addedAt: new Date(),
+      });
     }
 
     await cart.save();
-    const result = await PartnerCart.findById(cart._id);
-    return res.status(200).json(apiResponse(200, true, "Item added to cart"));
+
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "Item added to cart successfully", cart));
   } catch (error) {
-    console.error("Add to cart error:", error);
-    return res.status(500).json(apiResponse(500, false, error.message));
+    return res
+      .status(error.status || 500)
+      .json(apiResponse(error.status || 500, false, error.message));
   }
 };
 

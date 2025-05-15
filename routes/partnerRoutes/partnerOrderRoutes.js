@@ -5,7 +5,6 @@ const { verifyToken } = require('../../middlewares/verifyToken');
 const { isPartner } = require('../../middlewares/isPartner');
 const {
   createPartnerOrder,
-  verifyPayment,
   requestReturnAndRefund,
   fetchAllPartnerOrders,
 } = require('../../controllers/partnerController/partnerOrderController');
@@ -16,9 +15,6 @@ const upload = multer({ storage });
 
 // Create a new order (with cheque image upload)
 router.post('/create', verifyToken, isPartner, upload.single('chequeImageFile'), createPartnerOrder);
-
-// Verify Razorpay payment
-router.post('/verify-payment', verifyToken, isPartner, verifyPayment);
 
 // Request return and refund
 router.post('/return-refund', verifyToken, isPartner, requestReturnAndRefund);

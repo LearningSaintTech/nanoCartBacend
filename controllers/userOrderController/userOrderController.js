@@ -1,6 +1,3 @@
-
-
-
 const mongoose = require("mongoose");
 const UserOrder = require("../../models/User/UserOrder");
 const UserCart = require("../../models/User/UserCart");
@@ -15,11 +12,18 @@ const { StandardCheckoutPayRequest, RefundRequest } = require("pg-sdk-node");
 
 // Simple logging function to track actions and errors with timestamps and request IDs
 const log = (message, requestId) => {
-  console.log(`[${new Date().toISOString()}] [RequestID: ${requestId}] ${message}`);
+  console.log(
+    `[${new Date().toISOString()}] [RequestID: ${requestId}] ${message}`
+  );
 };
 
 // Retry helper for PhonePe API calls to handle transient failures with exponential backoff
-const withRetry = async (operation, maxRetries = 3, baseDelay = 1000, requestId) => {
+const withRetry = async (
+  operation,
+  maxRetries = 3,
+  baseDelay = 1000,
+  requestId
+) => {
   // Attempt the operation up to maxRetries times
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -46,28 +50,49 @@ const validateAndUpdateStock = async (orderDetails, session, requestId) => {
   // Iterate through each order item to validate and update stock
   for (const orderItem of orderDetails) {
     // Validate itemId
-    if (!orderItem.itemId || !mongoose.Types.ObjectId.isValid(orderItem.itemId)) {
+    if (
+      !orderItem.itemId ||
+      !mongoose.Types.ObjectId.isValid(orderItem.itemId)
+    ) {
       throw new Error("Valid itemId is required");
     }
     // Validate quantity
-    if (!orderItem.quantity || typeof orderItem.quantity !== "number" || orderItem.quantity < 1) {
+    if (
+      !orderItem.quantity ||
+      typeof orderItem.quantity !== "number" ||
+      orderItem.quantity < 1
+    ) {
       throw new Error("Valid quantity (minimum 1) is required");
     }
     // Validate size
-    if (!orderItem.size || typeof orderItem.size !== "string" || orderItem.size.trim() === "") {
+    if (
+      !orderItem.size ||
+      typeof orderItem.size !== "string" ||
+      orderItem.size.trim() === ""
+    ) {
       throw new Error("Valid size is required");
     }
     // Validate color
-    if (!orderItem.color || typeof orderItem.color !== "string" || orderItem.color.trim() === "") {
+    if (
+      !orderItem.color ||
+      typeof orderItem.color !== "string" ||
+      orderItem.color.trim() === ""
+    ) {
       throw new Error("Valid color is required");
     }
     // Validate skuId
-    if (!orderItem.skuId || typeof orderItem.skuId !== "string" || orderItem.skuId.trim() === "") {
+    if (
+      !orderItem.skuId ||
+      typeof orderItem.skuId !== "string" ||
+      orderItem.skuId.trim() === ""
+    ) {
       throw new Error("Valid skuId is required");
     }
 
     // Fetch item details from ItemDetail collection
-    const itemDetail = await ItemDetail.findOne({ itemId: orderItem.itemId }).session(session);
+    const itemDetail = await ItemDetail.findOne({
+      itemId: orderItem.itemId,
+    }).session(session);
     if (!itemDetail) {
       throw new Error(`Item detail for itemId ${orderItem.itemId} not found`);
     }
@@ -77,7 +102,9 @@ const validateAndUpdateStock = async (orderDetails, session, requestId) => {
       (entry) => entry.color.toLowerCase() === orderItem.color.toLowerCase()
     );
     if (!colorEntry) {
-      throw new Error(`Color ${orderItem.color} not found for itemId ${orderItem.itemId}`);
+      throw new Error(
+        `Color ${orderItem.color} not found for itemId ${orderItem.itemId}`
+      );
     }
 
     // Check if the requested size and skuId exist
@@ -93,7 +120,11 @@ const validateAndUpdateStock = async (orderDetails, session, requestId) => {
     // Verify sufficient stock
     if (!sizeEntry.stock || sizeEntry.stock < orderItem.quantity) {
       throw new Error(
-        `Insufficient stock for itemId ${orderItem.itemId}, size ${orderItem.size}, skuId ${orderItem.skuId}. Available: ${sizeEntry.stock || 0}, Requested: ${orderItem.quantity}`
+        `Insufficient stock for itemId ${orderItem.itemId}, size ${
+          orderItem.size
+        }, skuId ${orderItem.skuId}. Available: ${
+          sizeEntry.stock || 0
+        }, Requested: ${orderItem.quantity}`
       );
     }
 
@@ -164,7 +195,8 @@ const populateOrderDetails = async (orders, userId) => {
             });
             if (userAddress) {
               const matchedAddress = userAddress.addressDetail.find(
-                (addr) => addr._id.toString() === order.shippingAddressId.toString()
+                (addr) =>
+                  addr._id.toString() === order.shippingAddressId.toString()
               );
               if (matchedAddress) {
                 shippingAddress = {
@@ -203,13 +235,18 @@ const populateOrderDetails = async (orders, userId) => {
               });
               if (itemDetail) {
                 const colorEntry = itemDetail.imagesByColor.find(
-                  (entry) => entry.color.toLowerCase() === detail.color.toLowerCase()
+                  (entry) =>
+                    entry.color.toLowerCase() === detail.color.toLowerCase()
                 );
                 if (colorEntry) {
                   const sizeEntry = colorEntry.sizes.find(
                     (s) => s.size === detail.size && s.skuId === detail.skuId
                   );
-                  if (sizeEntry && colorEntry.images && colorEntry.images.length > 0) {
+                  if (
+                    sizeEntry &&
+                    colorEntry.images &&
+                    colorEntry.images.length > 0
+                  ) {
                     const sortedImages = colorEntry.images.sort(
                       (a, b) => (a.priority || 0) - (b.priority || 0)
                     );
@@ -228,7 +265,9 @@ const populateOrderDetails = async (orders, userId) => {
             if (
               detail.returnInfo &&
               detail.returnInfo.pickupLocationId &&
-              mongoose.Types.ObjectId.isValid(detail.returnInfo.pickupLocationId)
+              mongoose.Types.ObjectId.isValid(
+                detail.returnInfo.pickupLocationId
+              )
             ) {
               try {
                 const userAddress = await UserAddress.findOne({
@@ -238,7 +277,8 @@ const populateOrderDetails = async (orders, userId) => {
                 if (userAddress) {
                   const matchedAddress = userAddress.addressDetail.find(
                     (addr) =>
-                      addr._id.toString() === detail.returnInfo.pickupLocationId.toString()
+                      addr._id.toString() ===
+                      detail.returnInfo.pickupLocationId.toString()
                   );
                   if (matchedAddress) {
                     pickupLocation = {
@@ -270,7 +310,9 @@ const populateOrderDetails = async (orders, userId) => {
             if (
               detail.exchangeInfo &&
               detail.exchangeInfo.pickupLocationId &&
-              mongoose.Types.ObjectId.isValid(detail.exchangeInfo.pickupLocationId)
+              mongoose.Types.ObjectId.isValid(
+                detail.exchangeInfo.pickupLocationId
+              )
             ) {
               try {
                 const userAddress = await UserAddress.findOne({
@@ -280,7 +322,8 @@ const populateOrderDetails = async (orders, userId) => {
                 if (userAddress) {
                   const matchedAddress = userAddress.addressDetail.find(
                     (addr) =>
-                      addr._id.toString() === detail.exchangeInfo.pickupLocationId.toString()
+                      addr._id.toString() ===
+                      detail.exchangeInfo.pickupLocationId.toString()
                   );
                   if (matchedAddress) {
                     pickupLocation = {
@@ -352,8 +395,6 @@ const populateOrderDetails = async (orders, userId) => {
   }
 };
 
-
-
 // Controller to create a new order (COD or Online)
 exports.createUserOrder = async (req, res) => {
   // Start a MongoDB transaction session for atomic operations
@@ -367,7 +408,13 @@ exports.createUserOrder = async (req, res) => {
     log("Creating new order", requestId);
     // Extract userId from authenticated user and request body details
     const { userId } = req.user;
-    const { orderDetails, invoice, shippingAddressId, paymentMethod, totalAmount } = req.body;
+    const {
+      orderDetails,
+      invoice,
+      shippingAddressId,
+      paymentMethod,
+      totalAmount,
+    } = req.body;
 
     // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -377,38 +424,60 @@ exports.createUserOrder = async (req, res) => {
     }
 
     // Validate orderDetails array
-    if (!orderDetails || !Array.isArray(orderDetails) || orderDetails.length === 0) {
+    if (
+      !orderDetails ||
+      !Array.isArray(orderDetails) ||
+      orderDetails.length === 0
+    ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "orderDetails array is required and cannot be empty")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "orderDetails array is required and cannot be empty"
+          )
+        );
     }
 
     // Validate invoice array
     if (!Array.isArray(invoice) || invoice.length === 0) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Non-empty invoice array is required")
-      );
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Non-empty invoice array is required"));
     }
 
     // Validate each invoice entry
     for (const entry of invoice) {
-      if (!entry.key || typeof entry.key !== "string" || entry.key.trim() === "") {
+      if (
+        !entry.key ||
+        typeof entry.key !== "string" ||
+        entry.key.trim() === ""
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Each invoice entry must have a valid key")
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(400, false, "Each invoice entry must have a valid key")
+          );
       }
-      if (!entry.values || typeof entry.values !== "string" || entry.values.trim() === "") {
+      if (
+        !entry.values ||
+        typeof entry.values !== "string" ||
+        entry.values.trim() === ""
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Each invoice entry must have valid values")
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(400, false, "Each invoice entry must have valid values")
+          );
       }
     }
 
@@ -416,18 +485,30 @@ exports.createUserOrder = async (req, res) => {
     if (typeof totalAmount !== "number" || totalAmount <= 0) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Valid totalAmount is required and must be positive")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Valid totalAmount is required and must be positive"
+          )
+        );
     }
 
     // Validate paymentMethod
     if (!paymentMethod || !["Online", "COD"].includes(paymentMethod)) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Valid payment method (Online or COD) is required")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Valid payment method (Online or COD) is required"
+          )
+        );
     }
 
     // Validate shippingAddressId if provided
@@ -435,9 +516,9 @@ exports.createUserOrder = async (req, res) => {
       if (!mongoose.Types.ObjectId.isValid(shippingAddressId)) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Invalid shippingAddressId")
-        );
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Invalid shippingAddressId"));
       }
       // Check if the address exists for the user
       const addressExists = await UserAddress.findOne({
@@ -447,9 +528,9 @@ exports.createUserOrder = async (req, res) => {
       if (!addressExists) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(404).json(
-          apiResponse(404, false, "Shipping address not found")
-        );
+        return res
+          .status(404)
+          .json(apiResponse(404, false, "Shipping address not found"));
       }
     }
 
@@ -458,53 +539,74 @@ exports.createUserOrder = async (req, res) => {
     if (!userCart) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(
-        apiResponse(404, false, "User cart not found")
-      );
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "User cart not found"));
     }
 
     // Calculate subtotal from orderDetails
     let subtotal = 0;
     for (const orderItem of orderDetails) {
       // Validate itemId
-      if (!orderItem.itemId || !mongoose.Types.ObjectId.isValid(orderItem.itemId)) {
+      if (
+        !orderItem.itemId ||
+        !mongoose.Types.ObjectId.isValid(orderItem.itemId)
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Valid itemId is required")
-        );
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Valid itemId is required"));
       }
       // Validate quantity
-      if (!orderItem.quantity || typeof orderItem.quantity !== "number" || orderItem.quantity < 1) {
+      if (
+        !orderItem.quantity ||
+        typeof orderItem.quantity !== "number" ||
+        orderItem.quantity < 1
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Valid quantity (minimum 1) is required")
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(400, false, "Valid quantity (minimum 1) is required")
+          );
       }
       // Validate size
-      if (!orderItem.size || typeof orderItem.size !== "string" || orderItem.size.trim() === "") {
+      if (
+        !orderItem.size ||
+        typeof orderItem.size !== "string" ||
+        orderItem.size.trim() === ""
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Valid size is required")
-        );
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Valid size is required"));
       }
       // Validate color
-      if (!orderItem.color || typeof orderItem.color !== "string" || orderItem.color.trim() === "") {
+      if (
+        !orderItem.color ||
+        typeof orderItem.color !== "string" ||
+        orderItem.color.trim() === ""
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Valid color is required")
-        );
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Valid color is required"));
       }
       // Validate skuId
-      if (!orderItem.skuId || typeof orderItem.skuId !== "string" || orderItem.skuId.trim() === "") {
+      if (
+        !orderItem.skuId ||
+        typeof orderItem.skuId !== "string" ||
+        orderItem.skuId.trim() === ""
+      ) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "Valid skuId is required")
-        );
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Valid skuId is required"));
       }
 
       // Check if item exists in cart
@@ -518,13 +620,15 @@ exports.createUserOrder = async (req, res) => {
       if (!cartItem) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(404).json(
-          apiResponse(
-            404,
-            false,
-            `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`
-          )
-        );
+        return res
+          .status(404)
+          .json(
+            apiResponse(
+              404,
+              false,
+              `Cart item with itemId ${orderItem.itemId}, size ${orderItem.size}, color ${orderItem.color}, skuId ${orderItem.skuId} not found`
+            )
+          );
       }
 
       // Fetch item details to get discountedPrice
@@ -532,9 +636,15 @@ exports.createUserOrder = async (req, res) => {
       if (!item) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(404).json(
-          apiResponse(404, false, `Item with ID ${orderItem.itemId} not found`)
-        );
+        return res
+          .status(404)
+          .json(
+            apiResponse(
+              404,
+              false,
+              `Item with ID ${orderItem.itemId} not found`
+            )
+          );
       }
 
       // Use discountedPrice or MRP if discountedPrice is not available
@@ -542,9 +652,15 @@ exports.createUserOrder = async (req, res) => {
       if (typeof itemPrice !== "number" || itemPrice <= 0) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, `Invalid price for itemId ${orderItem.itemId}`)
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              false,
+              `Invalid price for itemId ${orderItem.itemId}`
+            )
+          );
       }
 
       // Add to subtotal (discountedPrice * quantity)
@@ -566,9 +682,15 @@ exports.createUserOrder = async (req, res) => {
       if (isNaN(value) || value < 0) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, `Invalid invoice value for key "${key}": ${entry.values}`)
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              false,
+              `Invalid invoice value for key "${key}": ${entry.values}`
+            )
+          );
       }
       switch (key) {
         case "gst":
@@ -593,35 +715,54 @@ exports.createUserOrder = async (req, res) => {
     if (invoiceDetails.gst === 0 && subtotal > 0) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "GST value is required in invoice when subtotal is positive")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "GST value is required in invoice when subtotal is positive"
+          )
+        );
     }
 
     // Validate coupon discount
-    if (invoiceDetails.couponDiscount < 0 || invoiceDetails.couponDiscount > subtotal) {
+    if (
+      invoiceDetails.couponDiscount < 0 ||
+      invoiceDetails.couponDiscount > subtotal
+    ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(
-          400,
-          false,
-          `Invalid coupon discount: ${invoiceDetails.couponDiscount}. Must be non-negative and not exceed subtotal (${subtotal.toFixed(2)})`
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Invalid coupon discount: ${
+              invoiceDetails.couponDiscount
+            }. Must be non-negative and not exceed subtotal (${subtotal.toFixed(
+              2
+            )})`
+          )
+        );
     }
 
     // Validate shipping charge (assumed 0; adjust if dynamic)
     if (invoiceDetails.shippingCharge !== 0) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(
-          400,
-          false,
-          `Shipping charge mismatch. Expected: 0, Received: ${invoiceDetails.shippingCharge.toFixed(2)}`
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Shipping charge mismatch. Expected: 0, Received: ${invoiceDetails.shippingCharge.toFixed(
+              2
+            )}`
+          )
+        );
     }
 
     // Calculate total amount using invoice values
@@ -636,13 +777,17 @@ exports.createUserOrder = async (req, res) => {
     if (Math.abs(calculatedTotalAmount - totalAmount) > 0.01) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(
-          400,
-          false,
-          `Total amount mismatch. Expected: ${calculatedTotalAmount.toFixed(2)}, Received: ${totalAmount.toFixed(2)}`
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Total amount mismatch. Expected: ${calculatedTotalAmount.toFixed(
+              2
+            )}, Received: ${totalAmount.toFixed(2)}`
+          )
+        );
     }
 
     // Update stock for COD orders
@@ -651,7 +796,9 @@ exports.createUserOrder = async (req, res) => {
     }
 
     // Generate unique order and merchant IDs
-    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const orderId = `ORD-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
     const merchantOrderId = randomUUID();
 
     // Prepare order data
@@ -696,7 +843,10 @@ exports.createUserOrder = async (req, res) => {
       const request = StandardCheckoutPayRequest.builder()
         .merchantOrderId(merchantOrderId)
         .amount(totalAmount * 100) // Convert to paise
-        .redirectUrl(process.env.PHONEPE_REDIRECT_URL || "https://your-merchant.com/redirect")
+        .redirectUrl(
+          process.env.PHONEPE_REDIRECT_URL ||
+            "https://your-merchant.com/redirect"
+        )
         .build();
 
       // Initiate payment with retry logic
@@ -742,17 +892,21 @@ exports.createUserOrder = async (req, res) => {
 
     // Log success and return response
     log(`Order created successfully: ${orderId}`, requestId);
-    return res.status(201).json(
-      apiResponse(201, true, "Order created successfully", populatedOrder)
-    );
+    return res
+      .status(201)
+      .json(
+        apiResponse(201, true, "Order created successfully", populatedOrder)
+      );
   } catch (error) {
     // Roll back transaction on error
     await session.abortTransaction();
     session.endSession();
     log(`Error creating order: ${error.message}`, requestId);
-    return res.status(400).json(
-      apiResponse(400, false, error.message || "Error while creating order")
-    );
+    return res
+      .status(400)
+      .json(
+        apiResponse(400, false, error.message || "Error while creating order")
+      );
   }
 };
 
@@ -775,15 +929,22 @@ exports.verifyPayment = async (req, res) => {
     if (!phonepeMerchantOrderId) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Missing phonepeMerchantOrderId"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Missing phonepeMerchantOrderId"));
     }
 
     // Find order by merchant order ID and userId
-    const userOrder = await UserOrder.findOne({ phonepeMerchantOrderId, userId }).session(session);
+    const userOrder = await UserOrder.findOne({
+      phonepeMerchantOrderId,
+      userId,
+    }).session(session);
     if (!userOrder) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(apiResponse(404, false, "Order not found or not authorized"));
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "Order not found or not authorized"));
     }
 
     // Check if order is expired (older than 30 minutes)
@@ -803,9 +964,16 @@ exports.verifyPayment = async (req, res) => {
       await session.commitTransaction();
       session.endSession();
       const populatedOrder = await populateOrderDetails(userOrder, userId);
-      return res.status(200).json(
-        apiResponse(200, true, `Payment already processed as ${userOrder.paymentStatus}`, populatedOrder)
-      );
+      return res
+        .status(200)
+        .json(
+          apiResponse(
+            200,
+            true,
+            `Payment already processed as ${userOrder.paymentStatus}`,
+            populatedOrder
+          )
+        );
     }
 
     // Check payment status with PhonePe
@@ -821,7 +989,11 @@ exports.verifyPayment = async (req, res) => {
       case "COMPLETED":
         try {
           // Update stock for order items
-          await validateAndUpdateStock(userOrder.orderDetails, session, requestId);
+          await validateAndUpdateStock(
+            userOrder.orderDetails,
+            session,
+            requestId
+          );
 
           // Update order status
           const updatedOrder = await UserOrder.findOneAndUpdate(
@@ -841,23 +1013,47 @@ exports.verifyPayment = async (req, res) => {
           session.endSession();
 
           // Populate order details
-          const populatedOrder = await populateOrderDetails(updatedOrder, userId);
-          log(`Payment verified successfully: ${phonepeMerchantOrderId}`, requestId);
-          return res.status(200).json(
-            apiResponse(200, true, "Payment verified and stock updated successfully", populatedOrder)
+          const populatedOrder = await populateOrderDetails(
+            updatedOrder,
+            userId
           );
+          log(
+            `Payment verified successfully: ${phonepeMerchantOrderId}`,
+            requestId
+          );
+          return res
+            .status(200)
+            .json(
+              apiResponse(
+                200,
+                true,
+                "Payment verified and stock updated successfully",
+                populatedOrder
+              )
+            );
         } catch (stockError) {
           // Handle stock errors within transaction
           if (stockError.message.includes("Insufficient stock")) {
             await UserOrder.findOneAndUpdate(
               { phonepeMerchantOrderId, userId },
-              { $set: { paymentStatus: "Failed", orderStatus: "Cancelled", isOrderCancelled: true } },
+              {
+                $set: {
+                  paymentStatus: "Failed",
+                  orderStatus: "Cancelled",
+                  isOrderCancelled: true,
+                },
+              },
               { session }
             );
             await session.commitTransaction();
             session.endSession();
-            log(`Stock error during payment verification: ${stockError.message}`, requestId);
-            return res.status(400).json(apiResponse(400, false, stockError.message));
+            log(
+              `Stock error during payment verification: ${stockError.message}`,
+              requestId
+            );
+            return res
+              .status(400)
+              .json(apiResponse(400, false, stockError.message));
           }
           throw stockError;
         }
@@ -867,7 +1063,13 @@ exports.verifyPayment = async (req, res) => {
         // Update order for failed payment
         await UserOrder.findOneAndUpdate(
           { phonepeMerchantOrderId, userId },
-          { $set: { paymentStatus: "Failed", orderStatus: "Cancelled", isOrderCancelled: true } },
+          {
+            $set: {
+              paymentStatus: "Failed",
+              orderStatus: "Cancelled",
+              isOrderCancelled: true,
+            },
+          },
           { session }
         );
 
@@ -882,23 +1084,38 @@ exports.verifyPayment = async (req, res) => {
         // Handle pending states
         await session.commitTransaction();
         session.endSession();
-        return res.status(200).json(apiResponse(200, false, "Payment is still pending"));
+        return res
+          .status(200)
+          .json(apiResponse(200, false, "Payment is still pending"));
 
       default:
         // Handle unexpected states
         await session.commitTransaction();
         session.endSession();
-        log(`Unexpected payment state: ${response.state} for ${phonepeMerchantOrderId}`, requestId);
-        return res.status(400).json(apiResponse(400, false, `Unexpected payment state: ${response.state}`));
+        log(
+          `Unexpected payment state: ${response.state} for ${phonepeMerchantOrderId}`,
+          requestId
+        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              false,
+              `Unexpected payment state: ${response.state}`
+            )
+          );
     }
   } catch (error) {
     // Roll back transaction on error
     await session.abortTransaction();
     session.endSession();
     log(`Error verifying payment: ${error.message}`, requestId);
-    return res.status(500).json(
-      apiResponse(500, false, error.message || "Error verifying payment")
-    );
+    return res
+      .status(500)
+      .json(
+        apiResponse(500, false, error.message || "Error verifying payment")
+      );
   }
 };
 
@@ -922,7 +1139,9 @@ exports.handlePhonePeCallback = async (req, res) => {
       await session.abortTransaction();
       session.endSession();
       log("Missing callback parameters", requestId);
-      return res.status(400).json(apiResponse(400, false, "Missing callback parameters"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Missing callback parameters"));
     }
 
     // Extract callback data (simplified; adjust based on PhonePe documentation)
@@ -930,7 +1149,9 @@ exports.handlePhonePeCallback = async (req, res) => {
     const { orderId, state } = callbackResponse;
 
     // Find order by PhonePe order ID
-    const order = await UserOrder.findOne({ phonepeOrderId: orderId }).session(session);
+    const order = await UserOrder.findOne({ phonepeOrderId: orderId }).session(
+      session
+    );
     if (!order) {
       await session.abortTransaction();
       session.endSession();
@@ -942,8 +1163,19 @@ exports.handlePhonePeCallback = async (req, res) => {
     if (["Paid", "Failed", "Expired"].includes(order.paymentStatus)) {
       await session.commitTransaction();
       session.endSession();
-      log(`Callback already processed for order: ${orderId}, status: ${order.paymentStatus}`, requestId);
-      return res.status(200).json(apiResponse(200, true, `Callback already processed as ${order.paymentStatus}`));
+      log(
+        `Callback already processed for order: ${orderId}, status: ${order.paymentStatus}`,
+        requestId
+      );
+      return res
+        .status(200)
+        .json(
+          apiResponse(
+            200,
+            true,
+            `Callback already processed as ${order.paymentStatus}`
+          )
+        );
     }
 
     // Handle completed payment
@@ -961,8 +1193,13 @@ exports.handlePhonePeCallback = async (req, res) => {
       // No action for other states
       await session.commitTransaction();
       session.endSession();
-      log(`Callback state ${state} requires no action for order: ${orderId}`, requestId);
-      return res.status(200).json(apiResponse(200, true, "Callback received but no action taken"));
+      log(
+        `Callback state ${state} requires no action for order: ${orderId}`,
+        requestId
+      );
+      return res
+        .status(200)
+        .json(apiResponse(200, true, "Callback received but no action taken"));
     }
 
     // Save order updates
@@ -973,14 +1210,21 @@ exports.handlePhonePeCallback = async (req, res) => {
     session.endSession();
 
     // Log success and return response
-    log(`Callback processed successfully for order: ${orderId}, state: ${state}`, requestId);
-    return res.status(200).json(apiResponse(200, true, "Callback processed successfully"));
+    log(
+      `Callback processed successfully for order: ${orderId}, state: ${state}`,
+      requestId
+    );
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "Callback processed successfully"));
   } catch (error) {
     // Roll back transaction on error
     await session.abortTransaction();
     session.endSession();
     log(`Error processing callback: ${error.message}`, requestId);
-    return res.status(400).json(apiResponse(400, false, "Error processing callback"));
+    return res
+      .status(400)
+      .json(apiResponse(400, false, "Error processing callback"));
   }
 };
 
@@ -1010,7 +1254,9 @@ exports.cancelOrder = async (req, res) => {
     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid orderId is required"));
     }
 
     // Find order
@@ -1025,7 +1271,9 @@ exports.cancelOrder = async (req, res) => {
     if (order.isOrderCancelled) {
       await session.commitTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Order is already cancelled"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Order is already cancelled"));
     }
 
     // Check if order is in a non-cancellable state
@@ -1033,13 +1281,15 @@ exports.cancelOrder = async (req, res) => {
     if (nonCancellableStatuses.includes(order.orderStatus)) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(
-          400,
-          false,
-          `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Order cannot be cancelled in ${order.orderStatus} status. Cancellation is only allowed before shipping.`
+          )
+        );
     }
 
     // Calculate total refund amount
@@ -1049,9 +1299,11 @@ exports.cancelOrder = async (req, res) => {
       if (!item) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(404).json(
-          apiResponse(404, false, `Item with ID ${detail.itemId} not found`)
-        );
+        return res
+          .status(404)
+          .json(
+            apiResponse(404, false, `Item with ID ${detail.itemId} not found`)
+          );
       }
 
       const itemPrice = item.discountedPrice || item.MRP;
@@ -1069,21 +1321,28 @@ exports.cancelOrder = async (req, res) => {
         refundReason,
         requestDate: new Date(),
       };
-    } else if (order.paymentMethod === "Online" && order.paymentStatus === "Paid") {
+    } else if (
+      order.paymentMethod === "Online" &&
+      order.paymentStatus === "Paid"
+    ) {
       // Validate merchant order ID
       if (!order.phonepeMerchantOrderId) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "No valid PhonePe merchant order ID found")
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(400, false, "No valid PhonePe merchant order ID found")
+          );
       }
 
       // Check if refund is already initiated
       if (order.refund && order.refund.refundTransactionId) {
         await session.commitTransaction();
         session.endSession();
-        return res.status(400).json(apiResponse(400, false, "Refund already initiated"));
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Refund already initiated"));
       }
 
       // Initiate refund
@@ -1113,9 +1372,15 @@ exports.cancelOrder = async (req, res) => {
     } else {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Refunds are only applicable for online paid orders or COD")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Refunds are only applicable for online paid orders or COD"
+          )
+        );
     }
 
     // Save order updates
@@ -1130,20 +1395,23 @@ exports.cancelOrder = async (req, res) => {
 
     // Log success and return response
     log(`Order cancelled successfully: ${orderId}`, requestId);
-    return res.status(200).json(
-      apiResponse(200, true, "Order cancelled successfully", enrichedOrder)
-    );
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, true, "Order cancelled successfully", enrichedOrder)
+      );
   } catch (error) {
     // Roll back transaction on error
     await session.abortTransaction();
     session.endSession();
     log(`Error cancelling order: ${error.message}`, requestId);
-    return res.status(500).json(
-      apiResponse(500, false, error.message || "Error while cancelling order")
-    );
+    return res
+      .status(500)
+      .json(
+        apiResponse(500, false, error.message || "Error while cancelling order")
+      );
   }
 };
-
 
 // Controller to process return and refund requests
 exports.returnRefund = async (req, res) => {
@@ -1181,42 +1449,57 @@ exports.returnRefund = async (req, res) => {
     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid orderId is required"));
     }
 
     // Validate itemId
     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid itemId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid itemId is required"));
     }
 
     // Validate color
     if (!color || typeof color !== "string" || color.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid color is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid color is required"));
     }
 
     // Validate size
     if (!size || typeof size !== "string" || size.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid size is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid size is required"));
     }
 
     // Validate skuId if provided
     if (skuId && (typeof skuId !== "string" || skuId.trim() === "")) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid skuId is required if provided"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid skuId is required if provided"));
     }
 
     // Validate pickupLocationId
-    if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
+    if (
+      !pickupLocationId ||
+      !mongoose.Types.ObjectId.isValid(pickupLocationId)
+    ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid pickupLocationId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid pickupLocationId is required"));
     }
 
     // Validate returnReason
@@ -1235,7 +1518,9 @@ exports.returnRefund = async (req, res) => {
     ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid returnReason is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid returnReason is required"));
     }
 
     // Validate specificReturnReason
@@ -1246,17 +1531,24 @@ exports.returnRefund = async (req, res) => {
     ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid specificReturnReason is required"));
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, false, "Valid specificReturnReason is required")
+        );
     }
 
     // Validate bankDetails
     if (!bankDetails) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "bankDetails are required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "bankDetails are required"));
     }
 
-    const { accountNumber, ifscCode, bankName, accountHolderName } = bankDetails;
+    const { accountNumber, ifscCode, bankName, accountHolderName } =
+      bankDetails;
     if (
       !accountNumber ||
       typeof accountNumber !== "string" ||
@@ -1273,9 +1565,11 @@ exports.returnRefund = async (req, res) => {
     ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Complete and valid bankDetails are required")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, false, "Complete and valid bankDetails are required")
+        );
     }
 
     // Find order
@@ -1290,9 +1584,15 @@ exports.returnRefund = async (req, res) => {
     if (order.orderStatus !== "Delivered") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Order must be in Delivered status to initiate a return")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Order must be in Delivered status to initiate a return"
+          )
+        );
     }
 
     // Find order detail for the item by itemId, color, size, and optionally skuId
@@ -1306,13 +1606,17 @@ exports.returnRefund = async (req, res) => {
     if (!orderDetail) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(
-        apiResponse(
-          404,
-          false,
-          `Item with ID ${itemId}, color ${color}, size ${size}${skuId ? `, skuId ${skuId}` : ""} not found in order details`
-        )
-      );
+      return res
+        .status(404)
+        .json(
+          apiResponse(
+            404,
+            false,
+            `Item with ID ${itemId}, color ${color}, size ${size}${
+              skuId ? `, skuId ${skuId}` : ""
+            } not found in order details`
+          )
+        );
     }
 
     // Check if return is already in progress
@@ -1324,9 +1628,15 @@ exports.returnRefund = async (req, res) => {
     ) {
       await session.commitTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "A return request is already in progress for this item")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "A return request is already in progress for this item"
+          )
+        );
     }
 
     // Check if exchange is already in progress
@@ -1338,9 +1648,15 @@ exports.returnRefund = async (req, res) => {
     ) {
       await session.commitTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "An exchange request is already in progress for this item")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "An exchange request is already in progress for this item"
+          )
+        );
     }
 
     // Validate pickup address
@@ -1351,7 +1667,9 @@ exports.returnRefund = async (req, res) => {
     if (!addressExists) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(apiResponse(404, false, "Pickup address not found"));
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "Pickup address not found"));
     }
 
     // Fetch item details
@@ -1359,9 +1677,15 @@ exports.returnRefund = async (req, res) => {
     if (!item) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(
-        apiResponse(404, false, `Item with ID ${orderDetail.itemId} not found`)
-      );
+      return res
+        .status(404)
+        .json(
+          apiResponse(
+            404,
+            false,
+            `Item with ID ${orderDetail.itemId} not found`
+          )
+        );
     }
 
     // Calculate refund amount
@@ -1381,17 +1705,29 @@ exports.returnRefund = async (req, res) => {
       if (typeof itemPrice !== "number" || itemPrice <= 0) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, `Invalid price for itemId ${orderDetail.itemId}`)
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              false,
+              `Invalid price for itemId ${orderDetail.itemId}`
+            )
+          );
       }
       const quantity = orderDetail.quantity;
       if (typeof quantity !== "number" || quantity < 1) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, `Invalid quantity for itemId ${orderDetail.itemId}`)
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(
+              400,
+              false,
+              `Invalid quantity for itemId ${orderDetail.itemId}`
+            )
+          );
       }
       const itemTotal = itemPrice * quantity;
       if (order.paymentMethod === "COD") {
@@ -1405,9 +1741,9 @@ exports.returnRefund = async (req, res) => {
     if (typeof refundAmount !== "number" || refundAmount < 0) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Calculated refund amount is invalid")
-      );
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Calculated refund amount is invalid"));
     }
 
     // Prepare return info
@@ -1424,21 +1760,31 @@ exports.returnRefund = async (req, res) => {
     // Handle COD refunds
     if (order.paymentMethod === "COD") {
       returnInfo.returnAndRefundTransactionId = `REF-COD-${Date.now()}`;
-    } else if (order.paymentMethod === "Online" && order.paymentStatus === "Paid") {
+    } else if (
+      order.paymentMethod === "Online" &&
+      order.paymentStatus === "Paid"
+    ) {
       // Validate merchant order ID
       if (!order.phonepeMerchantOrderId) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json(
-          apiResponse(400, false, "No valid PhonePe merchant order ID found")
-        );
+        return res
+          .status(400)
+          .json(
+            apiResponse(400, false, "No valid PhonePe merchant order ID found")
+          );
       }
 
       // Check if refund is already initiated
-      if (orderDetail.returnInfo && orderDetail.returnInfo.returnAndRefundTransactionId) {
+      if (
+        orderDetail.returnInfo &&
+        orderDetail.returnInfo.returnAndRefundTransactionId
+      ) {
         await session.commitTransaction();
         session.endSession();
-        return res.status(400).json(apiResponse(400, false, "Refund already initiated"));
+        return res
+          .status(400)
+          .json(apiResponse(400, false, "Refund already initiated"));
       }
 
       // Initiate refund
@@ -1463,9 +1809,15 @@ exports.returnRefund = async (req, res) => {
     } else {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Refunds are only applicable for online paid orders or COD")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Refunds are only applicable for online paid orders or COD"
+          )
+        );
     }
 
     // Update order detail
@@ -1486,299 +1838,31 @@ exports.returnRefund = async (req, res) => {
     // Log success and return response
     log(`Return and refund initiated successfully: ${orderId}`, requestId);
     return res.status(200).json(
-      apiResponse(200, true, "Return and refund request initiated successfully", {
-        order: enrichedOrder,
-      })
+      apiResponse(
+        200,
+        true,
+        "Return and refund request initiated successfully",
+        {
+          order: enrichedOrder,
+        }
+      )
     );
   } catch (error) {
     // Roll back transaction on error
     await session.abortTransaction();
     session.endSession();
     log(`Error processing return and refund: ${error.message}`, requestId);
-    return res.status(500).json(
-      apiResponse(500, false, error.message || "Error while processing return and refund")
-    );
+    return res
+      .status(500)
+      .json(
+        apiResponse(
+          500,
+          false,
+          error.message || "Error while processing return and refund"
+        )
+      );
   }
 };
-
-
-// // Controller to process return and exchange requests
-// exports.returnAndExchange = async (req, res) => {
-//   // Start a MongoDB transaction session
-//   const session = await mongoose.startSession();
-//   session.startTransaction();
-//   // Generate a unique request ID for logging
-//   const requestId = randomUUID();
-
-//   try {
-//     // Log the start of exchange processing
-//     log("Processing return and exchange", requestId);
-//     // Extract userId and request body details
-//     const { userId } = req.user;
-//     const {
-//       orderId,
-//       itemId,
-//       exchangeReason,
-//       exchangeSpecificReason,
-//       pickupLocationId,
-//       color,
-//       size,
-//       skuId,
-//     } = req.body;
-
-//     // Validate userId
-//     if (!mongoose.Types.ObjectId.isValid(userId)) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Invalid userId"));
-//     }
-
-//     // Validate orderId
-//     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
-//     }
-
-//     // Validate itemId
-//     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid itemId is required"));
-//     }
-
-//     // Validate pickupLocationId
-//     if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid pickupLocationId is required"));
-//     }
-
-//     // Validate exchangeReason
-//     if (
-//       !exchangeReason ||
-//       ![
-//         "Size too small",
-//         "Size too big",
-//         "Don't like the fit",
-//         "Don't like the quality",
-//         "Not same as the catalogue",
-//         "Product is damaged",
-//         "Wrong product is received",
-//         "Product arrived too late",
-//       ].includes(exchangeReason)
-//     ) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid exchangeReason is required"));
-//     }
-
-//     // Validate exchangeSpecificReason
-//     if (
-//       !exchangeSpecificReason ||
-//       typeof exchangeSpecificReason !== "string" ||
-//       exchangeSpecificReason.trim() === ""
-//     ) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, "Valid exchangeSpecificReason is required")
-//       );
-//     }
-
-//     // Validate color
-//     if (!color || typeof color !== "string" || color.trim() === "") {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid color is required"));
-//     }
-
-//     // Validate size
-//     if (!size || typeof size !== "string" || size.trim() === "") {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid size is required"));
-//     }
-
-//     // Validate skuId
-//     if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, "Valid skuId is required"));
-//     }
-
-//     // Find order
-//     const order = await UserOrder.findOne({ orderId, userId }).session(session);
-//     if (!order) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(404).json(apiResponse(404, false, "Order not found"));
-//     }
-
-//     // Check if order is delivered
-//     if (order.orderStatus !== "Delivered") {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, "Order must be in Delivered status to initiate an exchange")
-//       );
-//     }
-
-//     // Find order detail for the item
-//     const orderDetail = order.orderDetails.find(
-//       (detail) => detail.itemId.toString() === itemId.toString()
-//     );
-//     if (!orderDetail) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(404).json(apiResponse(404, false, "Item not found in order details"));
-//     }
-
-//     // Check if return is already in progress
-//     if (
-//       orderDetail.isReturn ||
-//       (orderDetail.returnInfo &&
-//         orderDetail.returnInfo.refundStatus &&
-//         orderDetail.returnInfo.refundStatus !== "Completed")
-//     ) {
-//       await session.commitTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, "A return request is already in progress for this item")
-//       );
-//     }
-//     // Check if exchange is already in progress
-//     if (
-//       orderDetail.isExchange ||
-//       (orderDetail.exchangeInfo &&
-//         orderDetail.exchangeInfo.exchangeStatus &&
-//         orderDetail.exchangeInfo.exchangeStatus !== "Completed")
-//     ) {
-//       await session.commitTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, "An exchange request is already in progress for this item")
-//       );
-//     }
-
-//     // Validate pickup address
-//     const addressExists = await UserAddress.findOne({
-//       userId,
-//       "addressDetail._id": pickupLocationId,
-//     }).session(session);
-//     if (!addressExists) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(404).json(apiResponse(404, false, "Pickup address not found"));
-//     }
-
-//     // Fetch item details
-//     const item = await Item.findById(orderDetail.itemId).session(session);
-//     if (!item) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(404).json(
-//         apiResponse(404, false, `Item with ID ${orderDetail.itemId} not found`)
-//       );
-//     }
-
-//     // Fetch item detail for stock check
-//     const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId }).session(session);
-//     if (!itemDetail) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(404).json(apiResponse(404, false, "Item details not found"));
-//     }
-
-//     // Validate color availability
-//     const colorEntry = itemDetail.imagesByColor.find(
-//       (entry) => entry.color.toLowerCase() === color.toLowerCase()
-//     );
-//     if (!colorEntry) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, `Color ${color} not available for this item`)
-//       );
-//     }
-
-//     // Validate size and skuId
-//     const sizeEntry = colorEntry.sizes.find(
-//       (s) => s.size === size && s.skuId === skuId
-//     );
-//     if (!sizeEntry) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, `Size ${size} or skuId ${skuId} not available for color ${color}`)
-//       );
-//     }
-
-//     // Check stock availability
-//     if (sizeEntry.stock <= 0) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(apiResponse(400, false, `Requested size ${size} is out of stock`));
-//     }
-
-//     // Validate price consistency
-//     const originalPrice = item.discountedPrice || item.MRP;
-//     const newPrice = originalPrice;
-//     if (originalPrice !== newPrice) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json(
-//         apiResponse(400, false, "Exchange is only allowed for products with the same price")
-//       );
-//     }
-
-//     // Prepare exchange info
-//     const exchangeInfo = {
-//       exchangeReason,
-//       exchangeSpecificReason,
-//       color,
-//       size,
-//       skuId,
-//       isSizeAvailability: true,
-//       requestDate: new Date(),
-//       pickupLocationId,
-//       exchangeStatus: "Initiated",
-//     };
-
-//     // Update order detail
-//     orderDetail.isExchange = true;
-//     orderDetail.exchangeInfo = exchangeInfo;
-//     order.orderStatus = "Returned";
-
-//     // Save order updates
-//     await order.save({ session });
-
-//     // Commit transaction
-//     await session.commitTransaction();
-//     session.endSession();
-
-//     // Populate order details
-//     const enrichedOrder = await populateOrderDetails(order, userId);
-
-//     // Log success and return response
-//     log(`Exchange request initiated successfully: ${orderId}`, requestId);
-//     return res.status(200).json(
-//       apiResponse(200, true, "Exchange request initiated successfully", {
-//         order: enrichedOrder,
-//       })
-//     );
-//   } catch (error) {
-//     // Roll back transaction on error
-//     await session.abortTransaction();
-//     session.endSession();
-//     log(`Error processing return and exchange: ${error.message}`, requestId);
-//     return res.status(500).json(
-//       apiResponse(500, false, error.message || "Error while processing return and exchange")
-//     );
-//   }
-// };
-
-
 
 // Controller to process return and exchange requests
 exports.returnAndExchange = async (req, res) => {
@@ -1817,56 +1901,83 @@ exports.returnAndExchange = async (req, res) => {
     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid orderId is required"));
     }
 
     // Validate itemId
     if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid itemId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid itemId is required"));
     }
 
     // Validate color (for item to return)
     if (!color || typeof color !== "string" || color.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid color is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid color is required"));
     }
 
     // Validate size (for item to return)
     if (!size || typeof size !== "string" || size.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid size is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid size is required"));
     }
 
     // Validate skuId (for item to return)
     if (!skuId || typeof skuId !== "string" || skuId.trim() === "") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid skuId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid skuId is required"));
     }
 
     // Validate desiredColor (for replacement item)
-    if (!desiredColor || typeof desiredColor !== "string" || desiredColor.trim() === "") {
+    if (
+      !desiredColor ||
+      typeof desiredColor !== "string" ||
+      desiredColor.trim() === ""
+    ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid desiredColor is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid desiredColor is required"));
     }
 
     // Validate desiredSize (for replacement item)
-    if (!desiredSize || typeof desiredSize !== "string" || desiredSize.trim() === "") {
+    if (
+      !desiredSize ||
+      typeof desiredSize !== "string" ||
+      desiredSize.trim() === ""
+    ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid desiredSize is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid desiredSize is required"));
     }
 
     // Validate pickupLocationId
-    if (!pickupLocationId || !mongoose.Types.ObjectId.isValid(pickupLocationId)) {
+    if (
+      !pickupLocationId ||
+      !mongoose.Types.ObjectId.isValid(pickupLocationId)
+    ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid pickupLocationId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid pickupLocationId is required"));
     }
 
     // Validate exchangeReason
@@ -1885,7 +1996,9 @@ exports.returnAndExchange = async (req, res) => {
     ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(apiResponse(400, false, "Valid exchangeReason is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid exchangeReason is required"));
     }
 
     // Validate exchangeSpecificReason
@@ -1896,9 +2009,11 @@ exports.returnAndExchange = async (req, res) => {
     ) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Valid exchangeSpecificReason is required")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(400, false, "Valid exchangeSpecificReason is required")
+        );
     }
 
     // Find order
@@ -1913,9 +2028,15 @@ exports.returnAndExchange = async (req, res) => {
     if (order.orderStatus !== "Delivered") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Order must be in Delivered status to initiate an exchange")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Order must be in Delivered status to initiate an exchange"
+          )
+        );
     }
 
     // Find order detail for the item by itemId, color, size, and skuId
@@ -1929,13 +2050,15 @@ exports.returnAndExchange = async (req, res) => {
     if (!orderDetail) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(
-        apiResponse(
-          404,
-          false,
-          `Item with ID ${itemId}, color ${color}, size ${size}, skuId ${skuId} not found in order details`
-        )
-      );
+      return res
+        .status(404)
+        .json(
+          apiResponse(
+            404,
+            false,
+            `Item with ID ${itemId}, color ${color}, size ${size}, skuId ${skuId} not found in order details`
+          )
+        );
     }
 
     // Check if return is already in progress
@@ -1947,9 +2070,15 @@ exports.returnAndExchange = async (req, res) => {
     ) {
       await session.commitTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "A return request is already in progress for this item")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "A return request is already in progress for this item"
+          )
+        );
     }
 
     // Check if exchange is already in progress
@@ -1961,9 +2090,15 @@ exports.returnAndExchange = async (req, res) => {
     ) {
       await session.commitTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "An exchange request is already in progress for this item")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "An exchange request is already in progress for this item"
+          )
+        );
     }
 
     // Validate pickup address
@@ -1974,7 +2109,9 @@ exports.returnAndExchange = async (req, res) => {
     if (!addressExists) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(apiResponse(404, false, "Pickup address not found"));
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "Pickup address not found"));
     }
 
     // Fetch item details
@@ -1982,17 +2119,27 @@ exports.returnAndExchange = async (req, res) => {
     if (!item) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(
-        apiResponse(404, false, `Item with ID ${orderDetail.itemId} not found`)
-      );
+      return res
+        .status(404)
+        .json(
+          apiResponse(
+            404,
+            false,
+            `Item with ID ${orderDetail.itemId} not found`
+          )
+        );
     }
 
     // Fetch item detail for stock check
-    const itemDetail = await ItemDetail.findOne({ itemId: orderDetail.itemId }).session(session);
+    const itemDetail = await ItemDetail.findOne({
+      itemId: orderDetail.itemId,
+    }).session(session);
     if (!itemDetail) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json(apiResponse(404, false, "Item details not found"));
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "Item details not found"));
     }
 
     // Validate desiredColor availability for replacement item
@@ -2002,38 +2149,50 @@ exports.returnAndExchange = async (req, res) => {
     if (!colorEntry) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, `Color ${desiredColor} is not available for this item`)
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Color ${desiredColor} is not available for this item`
+          )
+        );
     }
 
     // Validate desiredSize availability for replacement item
-    const sizeEntry = colorEntry.sizes.find((s) => s.size.toLowerCase() === desiredSize.toLowerCase());
+    const sizeEntry = colorEntry.sizes.find(
+      (s) => s.size.toLowerCase() === desiredSize.toLowerCase()
+    );
     if (!sizeEntry) {
       // Check if other sizes are available for desiredColor
       const availableSizes = colorEntry.sizes.map((s) => s.size).join(", ");
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(
-          400,
-          false,
-          `Size ${desiredSize} is not available, but different sizes are available for color ${desiredColor}: ${availableSizes}`
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Size ${desiredSize} is not available, but different sizes are available for color ${desiredColor}: ${availableSizes}`
+          )
+        );
     }
 
     // Check stock availability for replacement item
     if (sizeEntry.stock < orderDetail.quantity) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(
-          400,
-          false,
-          `Requested size ${desiredSize} has insufficient stock for quantity ${orderDetail.quantity}`
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            `Requested size ${desiredSize} has insufficient stock for quantity ${orderDetail.quantity}`
+          )
+        );
     }
 
     // Validate price consistency
@@ -2042,9 +2201,15 @@ exports.returnAndExchange = async (req, res) => {
     if (originalPrice !== newPrice) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json(
-        apiResponse(400, false, "Exchange is only allowed for products with the same price")
-      );
+      return res
+        .status(400)
+        .json(
+          apiResponse(
+            400,
+            false,
+            "Exchange is only allowed for products with the same price"
+          )
+        );
     }
 
     // Prepare exchange info
@@ -2089,17 +2254,17 @@ exports.returnAndExchange = async (req, res) => {
     await session.abortTransaction();
     session.endSession();
     log(`Error processing return and exchange: ${error.message}`, requestId);
-    return res.status(500).json(
-      apiResponse(500, false, error.message || "Error while processing return and exchange")
-    );
+    return res
+      .status(500)
+      .json(
+        apiResponse(
+          500,
+          false,
+          error.message || "Error while processing return and exchange"
+        )
+      );
   }
 };
-
-
-
-
-
-
 
 // Controller to fetch all orders for a user
 exports.fetchAllUserOrders = async (req, res) => {
@@ -2122,7 +2287,9 @@ exports.fetchAllUserOrders = async (req, res) => {
 
     // Handle no orders found
     if (!orders || orders.length === 0) {
-      return res.status(200).json(apiResponse(200, true, "No user orders found", []));
+      return res
+        .status(200)
+        .json(apiResponse(200, true, "No user orders found", []));
     }
 
     // Populate order details
@@ -2130,15 +2297,28 @@ exports.fetchAllUserOrders = async (req, res) => {
 
     // Log success and return response
     log(`User orders fetched successfully for user: ${userId}`, requestId);
-    return res.status(200).json(
-      apiResponse(200, true, "User orders fetched successfully", enrichedOrders)
-    );
+    return res
+      .status(200)
+      .json(
+        apiResponse(
+          200,
+          true,
+          "User orders fetched successfully",
+          enrichedOrders
+        )
+      );
   } catch (error) {
     // Log error and return response
     log(`Error fetching user orders: ${error.message}`, requestId);
-    return res.status(500).json(
-      apiResponse(500, false, error.message || "Server error while fetching user orders")
-    );
+    return res
+      .status(500)
+      .json(
+        apiResponse(
+          500,
+          false,
+          error.message || "Server error while fetching user orders"
+        )
+      );
   }
 };
 
@@ -2161,7 +2341,9 @@ exports.fetchOrderByOrderId = async (req, res) => {
 
     // Validate orderId
     if (!orderId || typeof orderId !== "string" || orderId.trim() === "") {
-      return res.status(400).json(apiResponse(400, false, "Valid orderId is required"));
+      return res
+        .status(400)
+        .json(apiResponse(400, false, "Valid orderId is required"));
     }
 
     // Find order
@@ -2169,7 +2351,9 @@ exports.fetchOrderByOrderId = async (req, res) => {
 
     // Handle order not found
     if (!specificOrder) {
-      return res.status(404).json(apiResponse(404, false, "Order not found for this user"));
+      return res
+        .status(404)
+        .json(apiResponse(404, false, "Order not found for this user"));
     }
 
     // Populate order details
@@ -2177,14 +2361,18 @@ exports.fetchOrderByOrderId = async (req, res) => {
 
     // Log success and return response
     log(`Order fetched successfully: ${orderId}`, requestId);
-    return res.status(200).json(
-      apiResponse(200, true, "Order fetched successfully", specificOrder)
-    );
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, true, "Order fetched successfully", specificOrder)
+      );
   } catch (error) {
     // Log error and return response
     log(`Error fetching order: ${error.message}`, requestId);
-    return res.status(500).json(
-      apiResponse(500, false, error.message || "Error while fetching order")
-    );
+    return res
+      .status(500)
+      .json(
+        apiResponse(500, false, error.message || "Error while fetching order")
+      );
   }
 };

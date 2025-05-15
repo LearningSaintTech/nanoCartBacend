@@ -71,7 +71,7 @@ const orderSchema = new mongoose.Schema(
           lowercase: true,
           required: true,
         },
-        value: {
+        values: {
           type: String,
           required: true,
         },
@@ -95,9 +95,9 @@ const orderSchema = new mongoose.Schema(
     },
     isOrderPlaced: { type: Boolean, default: false },
     isOrderReturned: { type: Boolean, default: false },
-    razorpayOrderId: { type: String, default: null, index: true },
-    razorpayPaymentId: { type: String, default: null },
-    razorpaySignature: { type: String, default: null },
+    phonepeOrderId: { type: String, default: null },
+    phonepeMerchantOrderId: { type: String, default: null },
+    checkoutPageUrl: { type: String, default: null },
     isOnlinePayment: {
       type: Boolean,
       default: false,
