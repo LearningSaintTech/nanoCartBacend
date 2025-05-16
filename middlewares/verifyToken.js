@@ -23,7 +23,6 @@ exports.verifyToken = async (req, res, next) => {
     console.log("Decoded ->", decoded);
     req.user = decoded;
     return next();
-
     
   } catch (error) {
     console.log(error.message)
