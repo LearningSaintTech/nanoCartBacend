@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const orderSchema = new mongoose.Schema(
+const partnerOrderSchema = new mongoose.Schema(
   {
     orderId: {
       type: String,
@@ -98,55 +98,23 @@ const orderSchema = new mongoose.Schema(
     phonepeOrderId: { type: String, default: null },
     phonepeMerchantOrderId: { type: String, default: null },
     checkoutPageUrl: { type: String, default: null },
-    isOnlinePayment: {
-      type: Boolean,
-      default: false,
-    },
-    onlineAmount: {
-      type: Number,
-      default: 0,
-    },
-    isCodPayment: {
-      type: Boolean,
-      default: false,
-    },
-    codAmount: {
-      type: Number,
-      default: 0,
-    },
-    isChequePayment: {
-      type: Boolean,
-      default: false,
-    },
-    chequeAmount: {
-      type: Number,
-      default: 0,
-    },
-    isWalletPayment: {
-      type: Boolean,
-      default: false,
-    },
-    walletAmountUsed: {
-      type: Number,
-      default: 0,
-    },
+    isOnlinePayment: { type: Boolean, default: false },
+    onlineAmount: { type: Number, default: 0 },
+    isCodPayment: { type: Boolean, default: false },
+    codAmount: { type: Number, default: 0 },
+    isChequePayment: { type: Boolean, default: false },
+    chequeAmount: { type: Number, default: 0 },
+    isWalletPayment: { type: Boolean, default: false },
+    walletAmountUsed: { type: Number, default: 0 },
     paymentStatus: {
       type: String,
-      enum: ["Pending", "Paid", "Failed", "Refunded"],
+      enum: ["Pending", "Paid", "Failed"],
       default: "Pending",
     },
-    totalAmount: {
-      type: Number,
-      required: true,
-    },
+    totalAmount: { type: Number, required: true },
     chequeImages: {
-      url: {
-        type: String,
-      },
-      uploadedAt: {
-        type: Date,
-        default: Date.now,
-      },
+      url: { type: String },
+      uploadedAt: { type: Date, default: Date.now },
     },
     returnInfo: {
       reason: { type: String },
@@ -157,23 +125,16 @@ const orderSchema = new mongoose.Schema(
         default: null,
       },
       refundTransactionId: { type: String, default: null },
-      refundAmount: {
-        type: Number,
-        min: 0,
-        default: null,
-      },
+      refundAmount: { type: Number, min: 0, default: null },
       refundStatus: {
         type: String,
         enum: ["Initiated", "Processing", "Completed"],
         default: null,
       },
     },
-    deliveredAt: {
-      type: Date,
-      default: null,
-    },
+    deliveredAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("PartnerOrder", orderSchema);
+module.exports = mongoose.model("PartnerOrder", partnerOrderSchema);

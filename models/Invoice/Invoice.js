@@ -10,8 +10,8 @@ const InvoiceSchema = new mongoose.Schema(
           trim: true,
           lowercase: true,
         },
-        values: {
-          type: String,
+        value: {
+          type: Number,
           required: true,
         },
       },

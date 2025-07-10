@@ -3,24 +3,27 @@ const mongoose = require("mongoose");
 const itemDetailSchema = new mongoose.Schema(
   {
     itemId: {
-      type: mongoose.Schema.Types.ObjectId, 
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Item",
       required: true,
     },
-    imagesByColor: [ 
+    imagesByColor: [
       {
         color: { type: String },
-        hexCode:{type:String},
+        hexCode: { type: String },
         images: [
           {
             url: { type: String }, // Image or video URL from S3
             priority: { type: Number }, // Used for sorting display order
+            isTbyb:{type:Boolean,default:false},
+            itemDetailImageId:{type:String}
           },
-        ],
+        ],  
         sizes: [
           {
-            size: { type: String, trim: true }, 
+            size: { type: String, trim: true },
             stock: { type: Number, default: 0 },
+            isOutOfStock: { type: Boolean, default: false },
             skuId: { type: String, required: true },
           },
         ],
@@ -53,5 +56,14 @@ const itemDetailSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+itemDetailSchema.post("save", function (next) {
+  // Update isOutOfStock for each size in imagesByColor
+  this.imagesByColor.forEach((colorEntry) => {
+    colorEntry.sizes.forEach((sizeEntry) => {
+      sizeEntry.isOutOfStock = sizeEntry.stock === 0;
+    });
+  });
+});
 
 module.exports = mongoose.model("ItemDetail", itemDetailSchema);

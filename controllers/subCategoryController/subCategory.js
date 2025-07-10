@@ -12,7 +12,7 @@ const { apiResponse } = require("../../utils/apiResponse");
 
 exports.createSubCategory = async (req, res) => {
   try {
-    const { name, description, categoryId } = req.body;
+    const { name, description, isTrendy,categoryId } = req.body;
 
     if (!name || !categoryId) {
       return res
@@ -60,6 +60,7 @@ exports.createSubCategory = async (req, res) => {
       name: formattedName,
       description: description || undefined,
       image: imageUrl,
+      isTrendy,
       categoryId: categoryId,
     });
 
@@ -127,7 +128,7 @@ exports.deleteSubCategory = async (req, res) => {
 exports.updateSubCategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
-    const { name, description } = req.body;
+    const { name, description,isTrendy } = req.body;
 
     if (!subcategoryId) {
       return res
@@ -165,6 +166,11 @@ exports.updateSubCategory = async (req, res) => {
     // Update description if provided
     if (description) {
       subCategory.description = description;
+    }
+
+    // Update description if provided
+    if (isTrendy) {
+      subCategory.isTrendy = isTrendy;
     }
 
     await subCategory.save();
@@ -279,5 +285,31 @@ exports.getSubCategoryByCategoryId = async (req, res) => {
   } catch (error) {
     console.error("Error fetching SubCategory:", error.message);
     return res.status(500).json(apiResponse(500, false, error.message));
+  }
+};
+
+
+// Controller to fetch all trendy subcategories
+exports.getTrendySubCategories = async (req, res) => {
+  try {
+    const trendySubCategories = await SubCategory.find({ isTrendy: true })
+      .populate('categoryId', 'name') 
+      .lean(); 
+    
+    if (!trendySubCategories || trendySubCategories.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No trendy subcategories found',
+      });
+    }
+
+    res.status(200).json(apiResponse(200,true,"successfully fetch subcategory",trendySubCategories));
+  } catch (error) {
+    console.error('Error fetching trendy subcategories:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching trendy subcategories',
+      error: error.message,
+    });
   }
 };

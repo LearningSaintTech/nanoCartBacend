@@ -2,12 +2,14 @@ const express = require("express");
 const router = express.Router();
 const { verifyToken } = require("../../middlewares/verifyToken");
 const { isUser } = require("../../middlewares/isUser");
+const { isAdmin } = require("../../middlewares/isAdmin");
 
 // Import Cart Controllers
 const {
   addToCart,
   removeItemFromCart,
   getUserCart,
+  getUserCartByAdmin,
   updateCartItemQuantity
 } = require("../../controllers/userCartController/userCartController");
 
@@ -27,5 +29,8 @@ router.delete(
 router.put("/update-quantity",verifyToken ,isUser, updateCartItemQuantity);
 
 router.get("/", verifyToken, isUser, getUserCart);
+
+
+router.get("/admin/:userId", verifyToken, isAdmin, getUserCartByAdmin);
 
 module.exports = router;

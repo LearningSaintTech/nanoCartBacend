@@ -6,29 +6,17 @@ const TBYBSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+
   images: [
     {
-      itemImage:{
-         type: String,
+      itemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Item",
         required: true,
       },
-      userImage: {
-        type: String,
-        required: true,
-      },
-      TBYBImage: {
-        type: String,
-      },
-      uploadedAt: {
-        type: Date,
-        default: Date.now,  // Stores the time when the image was uploaded
-      },
+      tbybImageUrl:{type:[String]}
     },
   ],
-  trialOnNumber:{
-    type:Number,
-    default:0,
-  }
 });
 
 module.exports = mongoose.model("UserTBYB", TBYBSchema);

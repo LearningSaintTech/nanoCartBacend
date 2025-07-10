@@ -147,25 +147,142 @@ exports.removeItemFromWishlist = async (req, res) => {
   }
 };
 
-// Get User's Wishlist
+
+
 exports.getUserWishlist = async (req, res) => {
   try {
     console.log("Starting getUserWishlist");
     const { userId } = req.user;
 
-    // Correctly populate itemId before awaiting
+    // Fetch wishlist and populate itemId
     const wishlist = await UserWishlist.findOne({ userId })
       .populate({
         path: "items.itemId",
-      });
+        model: "Item",
+        select: "name description MRP discountedPrice",
+      })
+      .lean();
 
-    console.log("Fetched wishlist:", wishlist);
+    console.log("Fetched wishlist:", JSON.stringify(wishlist, null, 2));
 
     if (!wishlist || wishlist.items.length === 0) {
       return res
         .status(200)
         .json(apiResponse(200, true, "Wishlist is empty", { userId, items: [] }));
     }
+
+    // Fetch priority 1 image URL from ItemDetail for each item based on itemId and color
+    const enhancedItems = await Promise.all(
+      wishlist.items.map(async (item) => {
+        if (!item.itemId) {
+          console.warn(`Null itemId found in wishlist item:`, item);
+          return { ...item, url: null };
+        }
+
+        // Find ItemDetail matching itemId and color, and get priority 1 image
+        const itemDetail = await ItemDetail.findOne(
+          {
+            itemId: item.itemId._id,
+            "imagesByColor.color": item.color,
+          },
+          {
+            "imagesByColor.$": 1, // Get only the matching color object
+          }
+        ).lean();
+
+        if (!itemDetail) {
+          console.warn(`No ItemDetail found for itemId: ${item.itemId._id}, color: ${item.color}`);
+          return { ...item, url: null };
+        }
+
+        // Get the priority 1 image URL
+        const priorityOneImage = itemDetail.imagesByColor[0]?.images.find(
+          (img) => img.priority === 1
+        );
+
+        return {
+          ...item,
+          url: priorityOneImage ? priorityOneImage.url : null,
+        };
+      })
+    );
+
+    // Update wishlist items with enhanced data
+    wishlist.items = enhancedItems;
+
+    return res
+      .status(200)
+      .json(apiResponse(200, true, "Wishlist fetched successfully", wishlist));
+  } catch (error) {
+    console.error("Error in getUserWishlist:", {
+      message: error.message,
+      stack: error.stack,
+    });
+    return res.status(500).json(apiResponse(500, false, error.message));
+  }
+};
+
+
+exports.getUserWishlistByAdmin = async (req, res) => {
+  try {
+    console.log("Starting getUserWishlist");
+    const { userId } = req.params;
+
+    // Fetch wishlist and populate itemId
+    const wishlist = await UserWishlist.findOne({ userId })
+      .populate({
+        path: "items.itemId",
+        model: "Item",
+        select: "name description MRP discountedPrice",
+      })
+      .lean();
+
+    console.log("Fetched wishlist:", JSON.stringify(wishlist, null, 2));
+
+    if (!wishlist || wishlist.items.length === 0) {
+      return res
+        .status(200)
+        .json(apiResponse(200, true, "Wishlist is empty", { userId, items: [] }));
+    }
+
+    // Fetch priority 1 image URL from ItemDetail for each item based on itemId and color
+    const enhancedItems = await Promise.all(
+      wishlist.items.map(async (item) => {
+        if (!item.itemId) {
+          console.warn(`Null itemId found in wishlist item:`, item);
+          return { ...item, url: null };
+        }
+
+        // Find ItemDetail matching itemId and color, and get priority 1 image
+        const itemDetail = await ItemDetail.findOne(
+          {
+            itemId: item.itemId._id,
+            "imagesByColor.color": item.color,
+          },
+          {
+            "imagesByColor.$": 1, // Get only the matching color object
+          }
+        ).lean();
+
+        if (!itemDetail) {
+          console.warn(`No ItemDetail found for itemId: ${item.itemId._id}, color: ${item.color}`);
+          return { ...item, url: null };
+        }
+
+        // Get the priority 1 image URL
+        const priorityOneImage = itemDetail.imagesByColor[0]?.images.find(
+          (img) => img.priority === 1
+        );
+
+        return {
+          ...item,
+          url: priorityOneImage ? priorityOneImage.url : null,
+        };
+      })
+    );
+
+    // Update wishlist items with enhanced data
+    wishlist.items = enhancedItems;
 
     return res
       .status(200)

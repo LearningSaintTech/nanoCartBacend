@@ -216,3 +216,67 @@ exports.getPartnerWishlist = async (req, res) => {
     return res.status(500).json(apiResponse(500, false, error.message));
   }
 };
+
+
+
+exports.getPartnerWishlistForAdmin = async (req, res) => {
+  try {
+    console.log("Starting getPartnerWishlist");
+    const { partnerId } = req.params;
+
+    // Find wishlist by partner ID
+    const wishlist = await PartnerWishlist.findOne({ partnerId }).lean();
+    console.log(wishlist);
+
+    if (!wishlist || wishlist.items.length === 0) {
+      return res.status(200).json(apiResponse(200, true, "Wishlist is empty", { partnerId, items: [] }));
+    }
+
+    // Populate all fields of itemId for each item and fetch image from ItemDetail
+    const populatedItems = await Promise.all(
+      wishlist.items.map(async (item) => {
+        // Fetch all fields of the itemId
+        const populatedItem = await Item.findById(item.itemId).lean();
+        if (!populatedItem) {
+          return null; // Skip if item not found
+        }
+
+        // Fetch image with priority 1 from ItemDetail for the given itemId and color
+        const itemDetail = await ItemDetail.findOne({ itemId: item.itemId });
+        let image = null;
+        if (itemDetail) {
+          const colorEntry = itemDetail.imagesByColor.find(
+            (entry) => entry.color.toLowerCase() === item.color.toLowerCase()
+          );
+          if (colorEntry) {
+            const priorityImage = colorEntry.images.find((img) => img.priority === 1);
+            image = priorityImage ? priorityImage.url : null;
+          }
+        }
+
+        return {
+          itemId: populatedItem,
+          color: item.color,
+          image,
+        };
+      })
+    );
+
+    // Filter out null items (in case some items were not found)
+    const validItems = populatedItems.filter((item) => item !== null);
+
+    // Construct response data
+    const responseData = {
+      partnerId,
+      items: validItems,
+    };
+
+    return res.status(200).json(apiResponse(200, true, "Wishlist fetched successfully", responseData));
+  } catch (error) {
+    console.error("Error in getPartnerWishlist:", {
+      message: error.message,
+      stack: error.stack,
+    });
+    return res.status(500).json(apiResponse(500, false, error.message));
+  }
+};

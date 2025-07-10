@@ -6,12 +6,16 @@ const {
   deleteAllInvoice,
   deleteSpecificInvoice,
   getAllInvoices,
+  createSpecificInvoice
 } = require("../../controllers/invoiceController/invoiceController");
 const { verifyToken } = require("../../middlewares/verifyToken");
 const { isAdmin } = require("../../middlewares/isAdmin");
 
 // Create a new invoice
 router.post("/create", verifyToken, isAdmin, createInvoice);
+
+// Create a specific invoice entry in an existing invoice
+router.post("/:id/entry", verifyToken, isAdmin, createSpecificInvoice);
 
 // Update a specific invoice entry
 router.put("/:id/entry/:entryId", verifyToken, isAdmin, updateSpecificInvoice);

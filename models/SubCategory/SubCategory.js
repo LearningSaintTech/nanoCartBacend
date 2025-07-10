@@ -13,6 +13,7 @@ const subCategorySchema = new mongoose.Schema({
   image: {
     type: String,
   },
+  isTrendy:{type:Boolean,default:false},
   categoryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Category",

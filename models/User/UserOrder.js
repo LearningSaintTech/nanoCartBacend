@@ -67,7 +67,6 @@ const orderSchema = new mongoose.Schema(
             ref: "UserAddress",
             default: null,
           },
-          returnAndRefundTransactionId: { type: String, default: null },
           bankDetails: {
             accountHolderName: { type: String },
             accountNumber: { type: String },
@@ -79,6 +78,7 @@ const orderSchema = new mongoose.Schema(
             min: 0,
             default: null,
           },
+          returnAndRefundTransactionId: { type: String, default: null },
           refundStatus: {
             type: String,
             enum: ["Initiated", "Processing", "Completed"],
@@ -105,6 +105,8 @@ const orderSchema = new mongoose.Schema(
           size: { type: String },
           skuId: { type: String },
           isSizeAvailability: { type: Boolean },
+          desiredColor:{type:String},
+          desiredSize:{type:String},
           requestDate: { type: Date, default: null },
           pickupLocationId: {
             type: mongoose.Schema.Types.ObjectId,
@@ -113,7 +115,7 @@ const orderSchema = new mongoose.Schema(
           },
           exchangeStatus: {
             type: String,
-            enum: ["Initiated", "Processing", " fettCompleted"],
+            enum: ["Initiated", "Processing", " Completed"],
             default: null,
           },
         },
@@ -128,8 +130,8 @@ const orderSchema = new mongoose.Schema(
           lowercase: true,
           required: true,
         },
-        values: {
-          type: String,
+        value: {
+          type: Number,
           required: true,
         },
       },
@@ -162,9 +164,13 @@ const orderSchema = new mongoose.Schema(
         "Delivered",
         "Cancelled",
         "Returned",
+        "Exchanged",
+        "Partially Returned",
+        "Partially Exchanged",
       ],
       default: "Initiated",
     },
+    orderStatusDate:{type:Date},
     isOrderPlaced: { type: Boolean, default: false },
     isOrderCancelled: { type: Boolean, default: false },
     totalAmount: {
@@ -198,3 +204,4 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ phonepeMerchantOrderId: 1 }, { sparse: true });
 
 module.exports = mongoose.model("UserOrder", orderSchema);
+

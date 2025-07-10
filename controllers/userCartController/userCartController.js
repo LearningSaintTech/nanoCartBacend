@@ -4,11 +4,11 @@ const Item = require("../../models/Items/Item"); // Adjust path as needed
 const ItemDetail = require("../../models/Items/ItemDetail"); // Adjust path as needed
 const UserCart = require("../../models/User/UserCart"); // Adjust path as needed
 const { apiResponse } = require("../../utils/apiResponse"); // Adjust path as needed
+const { Category } = require("../../models/Category/Category");
 
 // Add Item to Cart
 exports.addToCart = async (req, res) => {
   try {
-    console.log("Starting addToCart");
     console.log("Request body:", req.body);
     const { userId } = req.user; 
     const { itemId, quantity, size, color, skuId } = req.body;
@@ -36,7 +36,7 @@ exports.addToCart = async (req, res) => {
       return res.status(404).json(apiResponse(404, false, "Item not found"));
     }
 
-    // Validate color, size, and skuId against ItemDetail
+    // Validate color, size, skuId, and stock against ItemDetail
     const itemDetail = await ItemDetail.findOne({ itemId });
     if (!itemDetail) {
       return res.status(404).json(apiResponse(404, false, "ItemDetail not found for this item"));
@@ -54,27 +54,60 @@ exports.addToCart = async (req, res) => {
       return res.status(400).json(apiResponse(400, false, `Size ${size} with skuId ${skuId} not available for color ${color}`));
     }
 
+    // Check stock availability
+    if (sizeEntry.isOutOfStock || sizeEntry.stock === 0) {
+      return res.status(400).json(apiResponse(400, false, `Item with size ${size} and color ${color} is out of stock`));
+    }
+    const requestedQuantity = quantity || 1;
+    if (sizeEntry.stock < requestedQuantity) {
+      return res.status(400).json(apiResponse(400, false, `Insufficient stock for size ${size} and color ${color}. Available: ${sizeEntry.stock}`));
+    }
+
     let cart = await UserCart.findOne({ userId });
     if (!cart) {
       // Create new cart
       cart = new UserCart({
         userId,
-        items: [{ itemId, quantity: quantity || 1, size, color, skuId }],
+        items: [{ itemId, quantity: requestedQuantity, size, color, skuId }],
       });
     } else {
       // Check for existing item
       const existingItem = cart.items.find(
         (i) =>
+          i.itemId &&
           i.itemId.toString() === itemId &&
           i.color.toLowerCase() === color.toLowerCase() &&
           i.size === size &&
           i.skuId === skuId
       );
       if (existingItem) {
-        existingItem.quantity += quantity || 1;
+        const newQuantity = existingItem.quantity + requestedQuantity;
+        if (sizeEntry.stock < newQuantity) {
+          return res.status(400).json(apiResponse(400, false, `Insufficient stock for size ${size} and color ${color}. Available: ${sizeEntry.stock}`));
+        }
+        existingItem.quantity = newQuantity;
       } else {
-        cart.items.push({ itemId, quantity: quantity || 1, size, color, skuId });
+        // Validate new item before pushing
+        const newItem = {
+          itemId,
+          quantity: requestedQuantity,
+          size,
+          color,
+          skuId,
+        };
+        if (!newItem.itemId || !newItem.size || !newItem.color || !newItem.skuId) {
+          return res.status(400).json(apiResponse(400, false, "Invalid item data: missing required fields"));
+        }
+        cart.items.push(newItem);
       }
+      // Clean up invalid items
+      cart.items = cart.items.filter(item => 
+        item.itemId && 
+        mongoose.Types.ObjectId.isValid(item.itemId) && 
+        item.size && 
+        item.color && 
+        item.skuId
+      );
     }
 
     await cart.save();
@@ -99,6 +132,7 @@ exports.addToCart = async (req, res) => {
     return res.status(error.statusCode || 500).json(apiResponse(error.statusCode || 500, false, error.message));
   }
 };
+
 
 // Remove Item from Cart
 exports.removeItemFromCart = async (req, res) => {
@@ -251,7 +285,6 @@ exports.getUserCart = async (req, res) => {
 };
 
 
-// Update Item Quantity in Cart Controller
 exports.updateCartItemQuantity = async (req, res) => {
   try {
     console.log("Starting updateCartItemQuantity");
@@ -290,7 +323,9 @@ exports.updateCartItemQuantity = async (req, res) => {
     if (!cart) {
       return res.status(404).json(apiResponse(404, false, "Cart not found"));
     }
+    console.log(cart);
 
+    console.log("3333");
     // Find the item in the cart
     const itemIndex = cart.items.findIndex(
       (i) =>
@@ -305,15 +340,43 @@ exports.updateCartItemQuantity = async (req, res) => {
         .json(apiResponse(404, false, "Item not found in cart"));
     }
 
+    // Validate stock for the item
+    const itemDetail = await ItemDetail.findOne({ itemId });
+    if (!itemDetail) {
+      return res.status(404).json(apiResponse(404, false, "ItemDetail not found for this item"));
+    }
+    const colorEntry = itemDetail.imagesByColor.find(
+      (entry) => entry.color.toLowerCase() === color.toLowerCase()
+    );
+    if (!colorEntry) {
+      return res.status(400).json(apiResponse(400, false, `Color ${color} not available for this item`));
+    }
+    const sizeEntry = colorEntry.sizes.find(
+      (s) => s.size === size && s.skuId === skuId
+    );
+    if (!sizeEntry) {
+      return res.status(400).json(apiResponse(400, false, `Size ${size} with skuId ${skuId} not available for color ${color}`));
+    }
+    console.log("22222222");
     // Store the item before updating
     let updatedItem = { ...cart.items[itemIndex].toObject() };
+    const previousQuantity = cart.items[itemIndex].quantity;
 
-    // Update quantity
+    console.log("1111111111",previousQuantity);
+
+    // Check stock availability for increase action
     if (normalizedAction === "increase") {
-      cart.items[itemIndex].quantity += 1;
-      updatedItem.quantity += 1;
+      if (sizeEntry.isOutOfStock || sizeEntry.stock === 0) {
+        return res.status(400).json(apiResponse(400, false, `Item with size ${size} and color ${color} is out of stock`));
+      }
+      const newQuantity = previousQuantity + 1;
+      if (newQuantity > sizeEntry.stock) {
+        return res.status(400).json(apiResponse(400, false, `Stock not available: requested quantity (${newQuantity}) exceeds available stock (${sizeEntry.stock}) for size ${size} and color ${color}`));
+      }
+      cart.items[itemIndex].quantity = newQuantity;
+      updatedItem.quantity = newQuantity;
     } else if (normalizedAction === "decrease") {
-      if (cart.items[itemIndex].quantity <= 1) {
+      if (previousQuantity <= 1) {
         cart.items.splice(itemIndex, 1);
         await cart.save();
         return res
@@ -346,9 +409,9 @@ exports.updateCartItemQuantity = async (req, res) => {
     // Fetch image from ItemDetail based on itemId, color, size, and skuId
     let image = null;
     try {
-      const itemDetail = await ItemDetail.findOne({ itemId: item.itemId._id });
-      if (itemDetail) {
-        const colorData = itemDetail.imagesByColor.find(
+      const itemDetailForImage = await ItemDetail.findOne({ itemId: item.itemId._id });
+      if (itemDetailForImage) {
+        const colorData = itemDetailForImage.imagesByColor.find(
           (colorObj) => colorObj.color.toLowerCase() === item.color.toLowerCase()
         );
         if (colorData) {
@@ -411,3 +474,103 @@ exports.updateCartItemQuantity = async (req, res) => {
       );
   }
 };
+
+
+
+
+exports.getUserCartByAdmin = async (req, res) => {
+  try {
+    console.log("Starting getUserCart");
+    const { userId } = req.params;
+
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json(apiResponse(400, false, "Invalid userId", null));
+    }
+
+    // Fetch cart and populate itemId with name, description, MRP, discountedPrice
+    let cart = await UserCart.findOne({ userId }).populate(
+      "items.itemId",
+      "name description MRP discountedPrice"
+    );
+
+    if (!cart || cart.items.length === 0) {
+      return res
+        .status(200)
+        .json(
+          apiResponse(200, true, "Cart is empty", { userId, items: [] })
+        );
+    }
+
+    // Fetch images from ItemDetail based on itemId, color, size, and skuId
+    const updatedItems = await Promise.all(
+      cart.items.map(async (item) => {
+        let image = null;
+
+        try {
+          const itemDetail = await ItemDetail.findOne({ itemId: item.itemId._id });
+          if (itemDetail) {
+            const colorData = itemDetail.imagesByColor.find(
+              (colorObj) => colorObj.color.toLowerCase() === item.color.toLowerCase()
+            );
+            if (colorData) {
+              const sizeEntry = colorData.sizes.find(
+                (s) => s.size === item.size && s.skuId === item.skuId
+              );
+              if (
+                sizeEntry &&
+                colorData.images &&
+                colorData.images.length > 0
+              ) {
+                // Get the image with the highest priority (lowest priority number)
+                const sortedImages = colorData.images.sort(
+                  (a, b) => (a.priority || 0) - (b.priority || 0)
+                );
+                image = sortedImages[0]?.url || null;
+              }
+            }
+          }
+        } catch (error) {
+          console.error(
+            `[getUserCart] Error fetching image for itemId ${item.itemId._id}, color ${item.color}, size ${item.size}, skuId ${item.skuId}:`,
+            error.message
+          );
+        }
+
+        return {
+          ...item.toObject(),
+          itemId: {
+            _id: item.itemId._id,
+            name: item.itemId.name,
+            description: item.itemId.description,
+            MRP: item.itemId.MRP,
+            discountedPrice: item.itemId.discountedPrice,
+            image, // Image from ItemDetail
+          },
+        };
+      })
+    );
+
+    const updatedCart = {
+      ...cart.toObject(),
+      items: updatedItems,
+    };
+
+    return res
+      .status(200)
+      .json(
+        apiResponse(200, true, "Cart fetched successfully", updatedCart)
+      );
+  } catch (error) {
+    console.error("Get cart error:", {
+      message: error.message,
+      stack: error.stack,
+    });
+    return res
+      .status(500)
+      .json(apiResponse(500, false, error.message || "Server error"));
+  }
+};
+
+
+

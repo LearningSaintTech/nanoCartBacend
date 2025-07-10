@@ -6,10 +6,12 @@ const {
   addToWishlist,
   removeItemFromWishlist,
   getUserWishlist,
+  getUserWishlistByAdmin
 } = require("../../controllers/userWishlistController/userWishlistController");
 
 const { verifyToken } = require("../../middlewares/verifyToken");
 const { isUser } = require("../../middlewares/isUser");
+const { isAdmin } = require("../../middlewares/isAdmin");
 
 // Route to add an item to the wishlist
 router.post("/create", verifyToken, isUser, addToWishlist);
@@ -20,6 +22,7 @@ router.put("/remove", verifyToken, isUser, removeItemFromWishlist);
 // Route to fetch the user's wishlist
 router.get("/", verifyToken, isUser, getUserWishlist);
 
-
+// Route to fetch the user's wishlist
+router.get("/admin/:userId", verifyToken, isAdmin, getUserWishlistByAdmin);
 
 module.exports = router;

@@ -1,6 +1,6 @@
  const express = require("express");
  const multer = require("multer");
- const { createSubCategory,updateSubCategory,deleteSubCategory,getAllSubCategories,getSubCategoryById,getSubCategoryByCategoryId } = require("../../controllers/subCategoryController/subCategory");
+ const { createSubCategory,updateSubCategory,deleteSubCategory,getAllSubCategories,getSubCategoryById,getSubCategoryByCategoryId,getTrendySubCategories } = require("../../controllers/subCategoryController/subCategory");
  
  const router = express.Router();
  
@@ -22,6 +22,9 @@
  
  // Define the route for get All  Subcategory
  router.get("/", getAllSubCategories);
+
+ //Define the route for get All Trendy Subcategory
+ router.get("/trendy",getTrendySubCategories)
  
  // Define the route for get a subCategory By Id
  router.get("/:subcategoryId", getSubCategoryById);
