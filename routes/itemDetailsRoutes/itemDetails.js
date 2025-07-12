@@ -73,7 +73,7 @@ router.post(
 // Bulk upload images for an ItemDetail (Admin only)
 router.post(
   "/:itemDetailId/bulk-upload-images",
-  verifyToken,
+  verifyToken,       
   isAdmin,
   upload.any(), // Supports multiple image uploads
   bulkUploadItemDetailImages
@@ -100,7 +100,7 @@ router.put(
   "/tbyb/:itemDetailId",
   verifyToken,
   isAdmin,
-  updateTbybStatus
+  updateTbybStatus 
 );
 
 module.exports = router;

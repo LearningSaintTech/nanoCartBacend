@@ -68,7 +68,7 @@ exports.createCoupon = async (req, res) => {
 exports.applyCouponByPartner = async (req, res) => {
   try {
     // Step 1: Extract input
-    const { couponCode } = req.body;
+    const { couponCode, totalAmount } = req.body;
     const { partnerId } = req.user; 
 
     // Step 2: Validate input
@@ -77,6 +77,9 @@ exports.applyCouponByPartner = async (req, res) => {
     }
     if (!mongoose.Types.ObjectId.isValid(partnerId)) {
       return res.status(400).json(apiResponse(400, false, 'Invalid partner ID'));
+    }
+    if (!totalAmount || typeof totalAmount !== 'number' || totalAmount <= 0) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid total amount'));
     }
 
     // Step 3: Find coupon
@@ -104,11 +107,20 @@ exports.applyCouponByPartner = async (req, res) => {
     // Step 7: Fetch discount value
     const { discountValue, discountType } = coupon;
 
-    // Step 8: Update coupon with user ID
+    // Step 8: Validate discount against total amount
+    let calculatedDiscount = discountValue;
+    if (discountType === 'percentage') {
+      calculatedDiscount = (totalAmount * discountValue) / 100;
+    }
+    if (calculatedDiscount > totalAmount) {
+      return res.status(400).json(apiResponse(400, false, 'discountValue is greater than totalAmount'));
+    }
+
+    // Step 9: Update coupon with user ID
     coupon.couponUserIdUsed.push(partnerObjectId);
     await coupon.save();
 
-    // Step 9: Return response
+    // Step 10: Return response
     return res.status(200).json({
       status: 200,
       success: true,
@@ -117,18 +129,19 @@ exports.applyCouponByPartner = async (req, res) => {
         couponCode,
         discountType,
         discountValue,
+        calculatedDiscount
       },
     });
   } catch (error) {
-    // Step 10: Handle errors
+    // Step 11: Handle errors
     return res.status(500).json(apiResponse(500, false, error.message));
   }
 };
-// Apply coupon and fetch discount value
+
 exports.applyCouponByUser = async (req, res) => {
   try {
     // Step 1: Extract input
-    const { couponCode } = req.body;
+    const { couponCode, totalAmount } = req.body;
     const { userId } = req.user; 
 
     // Step 2: Validate input
@@ -137,6 +150,9 @@ exports.applyCouponByUser = async (req, res) => {
     }
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json(apiResponse(400, false, 'Invalid User ID'));
+    }
+    if (!totalAmount || typeof totalAmount !== 'number' || totalAmount <= 0) {
+      return res.status(400).json(apiResponse(400, false, 'Invalid total amount'));
     }
 
     // Step 3: Find coupon
@@ -164,11 +180,24 @@ exports.applyCouponByUser = async (req, res) => {
     // Step 7: Fetch discount value
     const { discountValue, discountType } = coupon;
 
-    // Step 8: Update coupon with user ID
+    // Step 8: Validate discount against total amount
+    let calculatedDiscount = discountValue;
+    if (discountType === 'percentage') {
+      calculatedDiscount = (totalAmount * discountValue) / 100;
+      console.log("calculatedDiscount=>",calculatedDiscount);
+
+    }
+     console.log("calculatedDiscount=>",calculatedDiscount);
+    console.log("totalAmount",totalAmount);
+    if (calculatedDiscount > totalAmount) {
+      return res.status(400).json(apiResponse(400, false, 'discountValue is greater than totalAmount'));
+    }
+
+    // Step 9: Update coupon with user ID
     coupon.couponUserIdUsed.push(userObjectId);
     await coupon.save();
 
-    // Step 9: Return response
+    // Step 10: Return response
     return res.status(200).json({
       status: 200,
       success: true,
@@ -177,10 +206,11 @@ exports.applyCouponByUser = async (req, res) => {
         couponCode,
         discountType,
         discountValue,
+        calculatedDiscount
       },
     });
   } catch (error) {
-    // Step 10: Handle errors
+    // Step 11: Handle errors
     return res.status(500).json(apiResponse(500, false, error.message));
   }
 };

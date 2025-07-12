@@ -778,16 +778,33 @@ exports.bulkUploadItemImages = async (req, res) => {
   }
 };
 
-exports.findItems=async(req, res)=> {
+exports.findItems = async (req, res) => {
   try {
+    // Log incoming request body
+    console.log('📥 Request body:', JSON.stringify(req.body, null, 2));
+
     const {
+      categoryId,
+      subCategoryId,
+      filters = [], // Default to empty array to ensure no filters initially
+      name,
+      keyword,
+      sortBy = 'latestAddition', // Default sorting
+      page = 1, // Default to page 1
+      limit = 10, // Default to 10 items per page
+    } = req.body;
+
+    // Log extracted parameters
+    console.log('🛠️ Parameters:', {
       categoryId,
       subCategoryId,
       filters,
       name,
       keyword,
-      sortBy = 'latestAddition' // Default sorting
-    } = req.body;
+      sortBy,
+      page,
+      limit,
+    });
 
     // Build the query object
     let query = {};
@@ -795,62 +812,127 @@ exports.findItems=async(req, res)=> {
     // Add categoryId to query if provided
     if (categoryId) {
       query.categoryId = categoryId;
+      console.log('✅ Added categoryId to query:', categoryId);
     }
 
     // Add subCategoryId to query if provided
     if (subCategoryId) {
       query.subCategoryId = subCategoryId;
+      console.log('✅ Added subCategoryId to query:', subCategoryId);
     }
 
-    // Add filters to query if provided
-    if (filters && Array.isArray(filters)) {
-      query.filters = {
-        $all: filters.map(filter => ({
-          $elemMatch: { key: filter.key, value: filter.value }
-        }))
-      };
+    // Handle filters, including price range
+    if (filters && Array.isArray(filters) && filters.length > 0) {
+      const filterConditions = filters.map(filter => {
+        if (filter.key === 'Price range' && filter.value) {
+          // Parse price range (e.g., "₹500 - ₹1000")
+          const match = filter.value.match(/₹(\d+)\s*-\s*₹(\d+)/);
+          if (match) {
+            const [, min, max] = match;
+            console.log('💰 Parsed price range:', { min: Number(min), max: Number(max) });
+            return {
+              $elemMatch: {
+                key: filter.key,
+                value: { $gte: Number(min), $lte: Number(max) },
+              },
+            };
+          } else {
+            console.warn('⚠️ Invalid price range format:', filter.value);
+            return { $elemMatch: { key: filter.key, value: filter.value } };
+          }
+        }
+        console.log('🔍 Adding filter:', filter);
+        return { $elemMatch: { key: filter.key, value: filter.value } };
+      });
+
+      query.filters = { $all: filterConditions };
+      console.log('✅ Added filters to query:', JSON.stringify(query.filters, null, 2));
+    } else {
+      console.log('ℹ️ No filters applied (filters array is empty)');
     }
 
     // Add name to query if provided (case-insensitive partial match)
     if (name) {
       query.name = { $regex: name, $options: 'i' };
+      console.log('✅ Added name to query:', name);
     }
 
     // Add keyword search for name and description if provided
     if (keyword) {
       query.$text = { $search: keyword };
+      console.log('✅ Added keyword to query:', keyword);
     }
+
+    // Log final query
+    console.log('🔎 Final MongoDB query:', JSON.stringify(query, null, 2));
 
     // Define sorting options
     const sortOptions = {
       latestAddition: { createdAt: -1 }, // Newest first
       popularity: { userAverageRating: -1 }, // Highest rated first
       priceHighToLow: { discountedPrice: -1 }, // Highest price first
-      priceLowToHigh: { discountedPrice: 1 } // Lowest price first
+      priceLowToHigh: { discountedPrice: 1 }, // Lowest price first
+      offer: { discountPercentage: -1 }, // Highest discount first
     };
 
     // Validate sortBy parameter
     const validSortBy = sortOptions[sortBy] ? sortBy : 'latestAddition';
-    console.log(validSortBy);
+    console.log('🗂️ Selected sortBy:', validSortBy, 'Sort options:', sortOptions[validSortBy]);
 
-    // Execute the query
+    // Handle filter options request (when filters array is empty and no items are needed)
+    if (filters.length === 0 && !name && !keyword && limit === 1) {
+      console.log('ℹ️ Fetching filter options (minimal request detected)');
+      // Mock filter options (replace with actual logic to fetch filter metadata)
+      const filterOptions = [
+        { key: 'Color', values: ['Red', 'Blue', 'Green'] },
+        { key: 'Occasion', values: ['Casual', 'Formal', 'Party'] },
+        { key: 'Price range', values: [] }, // Added to match frontend expectation
+      ];
+      console.log('📋 Returning filter options:', JSON.stringify(filterOptions, null, 2));
+      return res.status(200).json({
+        success: true,
+        data: { filters: filterOptions },
+      });
+    }
+
+    // Calculate pagination
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+    console.log('📄 Pagination:', { page: pageNum, limit: limitNum, skip });
+
+    // Get total count for pagination
+    const totalItems = await Item.countDocuments(query);
+    const totalPages = Math.ceil(totalItems / limitNum);
+    console.log('📊 Total items:', totalItems, 'Total pages:', totalPages);
+
+    // Execute the query with pagination
     const items = await Item.find(query)
-      .populate('categoryId', 'name') // Populate category name
-      .populate('subCategoryId', 'name') // Populate subcategory name
+      .populate('categoryId', 'name')
+      .populate('subCategoryId', 'name')
       .sort(sortOptions[validSortBy])
-      .lean(); // Convert to plain JavaScript object for better performance
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
 
+    console.log('✅ Retrieved items:', items.length, 'Items:', JSON.stringify(items, null, 2));
+
+    // Send response
     res.status(200).json({
       success: true,
-      data: items,
-      count: items.length
+      data: {
+        items,
+        currentPage: pageNum,
+        totalPages,
+        totalItems,
+      },
     });
   } catch (error) {
-    console.error('Error finding items:', error);
+    console.error('❌ Error finding items:', error.message, error.stack);
     res.status(500).json({
       success: false,
       message: 'Error fetching items',
-      error: error.message
+      error: error.message,
     });
   }
-}
+};
